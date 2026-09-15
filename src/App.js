@@ -12,7 +12,7 @@ import { useMsal } from "@azure/msal-react";
 import { jwtDecode } from "jwt-decode";
 import { loginRequest } from "./auth/msalConfig";
 import CustomLoginPage from "./pages/CustomLoginPage";
-
+import MfaChallenge from "./components/MfaChallenge";
 import {
     getPublicData,
     getSecureData,
@@ -20,6 +20,17 @@ import {
     getMfaStatus,
     verifyMfa
 } from "./apiService";
+
+import {
+    startSignIn,
+    submitPassword,
+    submitVerificationCode,
+    clearSignInState,
+    submitMfaChallenge,
+    requestMfaChallenge,
+    getCurrentUser,
+    getCurrentSignInState
+} from "./auth/nativeAuthService";
 
 import NativeLoginTestPage from "./pages/NativeLoginTestPage";
 
@@ -33,7 +44,6 @@ function MsalDemoPage() {
     const [userInfo, setUserInfo] = useState(null);
     const [token, setToken] = useState("");
     const [mfaRequired, setMfaRequired] = useState(false);
-    const [mfaCode, setMfaCode] = useState("");
     const [mfaVerified, setMfaVerified] = useState(false);
     const [mfaMessage, setMfaMessage] = useState("");
 
@@ -42,7 +52,6 @@ function MsalDemoPage() {
         {
             mfaRequired,
             mfaVerified,
-            mfaCode,
             mfaMessage
         }
     );
@@ -315,22 +324,57 @@ function MsalDemoPage() {
         }
     };
     
-    const handleMfaVerify = async () => {
+    const handleNativeMfaMethod = async (methodId) => {
+    try {
+        setMfaMessage("Sending verification code...");
 
-        try {
+        const result =
+            await requestMfaChallenge(methodId);
 
-            const token =
-                await getAccessToken();
+        console.log(
+            "NATIVE MFA METHOD RESULT:",
+            result
+        );
 
+        if (!result.success) {
             setMfaMessage(
-                "Verifying MFA..."
+                result.message ||
+                "Unable to start MFA verification."
             );
 
-            const result =
-                await verifyMfa(
-                    token,
-                    mfaCode
-                );
+            return;
+        }
+
+        if (result.step === "mfaCode") {
+            setMfaMessage(
+                result.message ||
+                "A verification code has been sent."
+            );
+        }
+    }
+    catch (error) {
+        console.error(
+            "Native MFA method error:",
+            error
+        );
+
+        setMfaMessage(
+            error?.message ||
+            "Unable to start MFA verification."
+        );
+    }
+};
+
+    const handleMfaVerify = async (code) => {
+        try {
+            const token = await getAccessToken();
+
+            setMfaMessage("Verifying MFA...");
+
+            const result = await verifyMfa(
+                token,
+                code
+            );
 
             console.log(
                 "MFA VERIFY RESULT:",
@@ -339,15 +383,9 @@ function MsalDemoPage() {
 
             setMfaVerified(true);
             setMfaRequired(false);
-            setMfaCode("");
-
             setMfaMessage(
                 "MFA verification successful."
             );
-
-            // ====================================================
-            // NOW CALL THE SECURE API
-            // ====================================================
 
             const data =
                 await getSecureData(token);
@@ -359,21 +397,19 @@ function MsalDemoPage() {
                     2
                 )
             );
-
         }
         catch (error) {
-
             console.error(
                 "MFA verification error:",
                 error
             );
 
+            setMfaVerified(false);
+
             setMfaMessage(
                 error.response?.data ||
                 "MFA verification failed."
             );
-
-            setMfaVerified(false);
         }
     };
     // ============================================================
@@ -470,54 +506,32 @@ function MsalDemoPage() {
                             background: "#eee"
                         }}
                     >
-                        MFA DEBUG: {mfaRequired ? "REQUIRED" : "NOT REQUIRED"}
                     </div>
-
                     {mfaRequired && (
-
-                        <div
-                            style={{
-                                marginTop: "20px",
-                                padding: "15px",
-                                border: "1px solid #ccc",
-                                maxWidth: "500px"
+                        <MfaChallenge
+                            methods={{
+                                totp: true,
+                                email: true,
+                                sms: true
                             }}
-                        >
-
-                            <h3>
-                                Multi-Factor Authentication
-                            </h3>
-
-                            <p>
-                                {mfaMessage}
-                            </p>
-
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={6}
-                                placeholder="Enter 6-digit code"
-                                value={mfaCode}
-                                onChange={(e) =>
-                                    setMfaCode(
-                                        e.target.value
-                                            .replace(/\D/g, "")
-                                    )
-                                }
-                            />
-
-                            <button
-                                onClick={handleMfaVerify}
-                                disabled={mfaCode.length !== 6}
-                                style={{
-                                    marginLeft: "10px"
-                                }}
-                            >
-                                Verify MFA
-                            </button>
-
-                        </div>
-
+                            defaultMethod="totp"
+                            message={mfaMessage}
+                            onVerifyTotp={handleMfaVerify}
+                            onSelectEmail={() => {
+                                console.log(
+                                    "Email MFA selected"
+                                );
+                            }}
+                            onSelectSms={() => {
+                                console.log(
+                                    "SMS MFA selected"
+                                );
+                            }}
+                            onCancel={() => {
+                                setMfaRequired(false);
+                                setMfaMessage("");
+                            }}
+                        />
                     )}
 
                     <button

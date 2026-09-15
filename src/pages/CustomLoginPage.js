@@ -26,6 +26,7 @@ import MfaRegistrationCodeStep
     from "../components/authentication/MfaRegistrationCodeStep";
 
 import LoginMfaMethodStep from "../components/authentication/LoginMfaMethodStep";
+import MfaChallenge  from "../components/MfaChallenge";
 
 const primaryButtonSx = {
     py: 1.75,
@@ -128,32 +129,66 @@ const CustomLoginPage = () => {
                 );
             case "mfa":
                 return (
-                    <LoginMfaMethodStep
-                        username={username}
-                        mfaMethods={mfaMethods}
-                        selectedMfaMethod={selectedMfaMethod}
-                        setSelectedMfaMethod={setSelectedMfaMethod}
+                    <MfaChallenge
+                        nativeMfaMethods={mfaMethods}
+                        selectedNativeMfaMethod={
+                            selectedMfaMethod
+                        }
+                        onSelectNativeMfaMethod={
+                            setSelectedMfaMethod
+                        }
+                        onSubmitNativeMfaMethod={
+                            handleMfaMethodSubmit
+                        }
+                        nativeMfaStep={false}
                         loading={loading}
-                        handleMfaMethodSubmit={handleMfaMethodSubmit}
-                        handleBack={handleBack}
-                        primaryButtonSx={primaryButtonSx}
-                        backButtonSx={backButtonSx}
+                        message={
+                            "Choose how you want to verify your identity."
+                        }
+                        onCancel={handleBack}
                     />
                 );
-            case "mfaCode":
+            case "mfaCode": {
+                const nativeMfaCodeLength =
+                    activeMfaMethod?.challenge_channel ===
+                    "email"
+                        ? 8
+                        : 6;
                 return (
-                    <LoginMfaStep
-                        username={username}
-                        code={code}
-                        setCode={setCode}
+                    <MfaChallenge
+                        nativeMfaMethods={mfaMethods}
+                        selectedNativeMfaMethod={
+                            selectedMfaMethod
+                        }
+                        onSelectNativeMfaMethod={
+                            setSelectedMfaMethod
+                        }
+                        onSubmitNativeMfaMethod={
+                            handleMfaMethodSubmit
+                        }
+                        onVerifyNativeMfaCode={
+                            handleMfaSubmit
+                        }
+                        nativeMfaStep={true}
+                        nativeMfaCode={code}
+                        nativeMfaCodeLength={
+                            nativeMfaCodeLength
+                        }
+                        onNativeMfaCodeChange={
+                            setCode
+                        }
                         loading={loading}
-                        activeMfaMethod={activeMfaMethod}
-                        handleMfaSubmit={handleMfaSubmit}
-                        handleBack={handleBack}
-                        primaryButtonSx={primaryButtonSx}
-                        backButtonSx={backButtonSx}
+                        message={
+                            activeMfaMethod?.challenge_channel ===
+                            "sms"
+                                ? "Enter the verification code sent by text message."
+                                : "Enter the verification code sent by email."
+                        }
+
+                        onCancel={handleBack}
                     />
                 );
+            }
             case "code":
                 return (
                     <LoginCodeStep

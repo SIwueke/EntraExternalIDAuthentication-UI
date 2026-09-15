@@ -629,7 +629,9 @@ const handleMfaMethodSubmit = async () => {
 
     const handleMfaSubmit = async (event) => {
 
-        event.preventDefault();
+        if (event?.preventDefault) {
+            event.preventDefault();
+        }
 
         clearMessages();
         setLoading(true);

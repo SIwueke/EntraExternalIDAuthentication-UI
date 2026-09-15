@@ -211,9 +211,24 @@ const processAuthenticationResult = async (
     // Always update the current state
     // ---------------------------------------------------------
 
-    signInState =
-        result?.state ?? null;
+    signInState =  result?.state ?? null;
+    console.log("========== NATIVE AUTH STATE AFTER SIGN-IN =========="  );
 
+    console.log("Result constructor:",  result?.constructor?.name
+    );
+
+    console.log("State constructor:", result?.state?.constructor?.name
+    );
+
+    console.log("MFA required:",  isMfaRequired(result)
+    );
+
+    console.log("Auth method registration required:", isAuthMethodRegistrationRequired(result)
+    );
+
+    console.log("Sign-in state:",  signInState);
+
+    console.log("===================================================="   );
 
     // ---------------------------------------------------------
     // FAILED
@@ -940,9 +955,7 @@ const processMfaAwaitingState = async (
 export const requestMfaChallenge = async (
     authenticationMethodId
 ) => {
-
     try {
-
         if (
             !signInState ||
             !(
@@ -950,36 +963,22 @@ export const requestMfaChallenge = async (
                 MfaAwaitingState
             )
         ) {
-
             return {
-
                 success: false,
-
                 step: "error",
-
                 message:
                     "The MFA authentication method selection step is not active."
-
             };
-
         }
-
 
         if (!authenticationMethodId) {
-
             return {
-
                 success: false,
-
                 step: "mfa",
-
                 message:
                     "No MFA authentication method was selected."
-
             };
-
         }
-
 
         console.log(
             "========== REQUEST MFA CHALLENGE =========="
@@ -990,79 +989,35 @@ export const requestMfaChallenge = async (
             authenticationMethodId
         );
 
-
         const result =
-    await signInState.requestChallenge(
-        authenticationMethodId
-    );
-
-    console.log("========== MFA CHALLENGE RAW RESULT ==========");
-
-    console.log("Result:", result);
-    console.log("Result constructor:", result?.constructor?.name);
-    console.log("Result state:", result?.state);
-    console.log(
-        "State constructor:",
-        result?.state?.constructor?.name
-    );
-
-    console.log(
-        "isVerificationRequired:",
-        typeof result?.isVerificationRequired === "function"
-            ? result.isVerificationRequired()
-            : "not available"
-    );
-
-    console.log(
-        "isCompleted:",
-        typeof result?.isCompleted === "function"
-            ? result.isCompleted()
-            : "not available"
-    );
-
-    console.log(
-        "isFailed:",
-        typeof result?.isFailed === "function"
-            ? result.isFailed()
-            : "not available"
-    );
-
-    console.log("==============================================");
-
+            await signInState.requestChallenge(
+                authenticationMethodId
+            );
 
         console.log(
             "MFA challenge result:",
             result
         );
 
-
         // ------------------------------------------------------
         // FAILED
         // ------------------------------------------------------
 
         if (isFailed(result)) {
-
             return {
-
                 success: false,
-
                 step: "mfa",
-
                 message:
                     getErrorMessage(result)
-
             };
-
         }
 
-
         // ------------------------------------------------------
-        // Update state
+        // Update current state
         // ------------------------------------------------------
 
         signInState =
             result?.state ?? null;
-
 
         // ------------------------------------------------------
         // VERIFICATION REQUIRED
@@ -1070,106 +1025,85 @@ export const requestMfaChallenge = async (
 
         if (
             typeof result?.isVerificationRequired ===
-            "function" &&
+                "function" &&
             result.isVerificationRequired()
         ) {
-
             return {
-
                 success: true,
-
                 step: "mfaCode",
+                state: signInState,
 
-                state:
-                    signInState,
+                authenticationMethodId,
+
+                verificationRequired: true,
 
                 message:
-                    "A verification code has been sent to your email."
-
+                    "A verification code has been sent."
             };
-
         }
 
-
         // ------------------------------------------------------
-        // Explicit state check
+        // Explicit verification state
         // ------------------------------------------------------
 
         if (
             signInState instanceof
             MfaVerificationRequiredState
         ) {
-
             return {
-
                 success: true,
-
                 step: "mfaCode",
+                state: signInState,
 
-                state:
-                    signInState,
+                authenticationMethodId,
+
+                verificationRequired: true,
 
                 message:
-                    "A verification code has been sent to your email."
-
+                    "A verification code has been sent."
             };
-
         }
-
 
         // ------------------------------------------------------
         // COMPLETED
         // ------------------------------------------------------
 
         if (isCompleted(result)) {
-
             return createCompletedResult(result);
-
         }
-
 
         // ------------------------------------------------------
         // Unexpected
         // ------------------------------------------------------
 
         return {
-
             success: false,
-
             step: "error",
+            state: signInState,
 
-            state:
-                signInState,
+            authenticationMethodId,
 
             message:
                 "Unable to start the MFA verification challenge."
-
         };
-
     }
     catch (error) {
-
         console.error(
             "MFA challenge request error:",
             error
         );
 
         return {
-
             success: false,
-
             step: "mfa",
+            authenticationMethodId,
 
             message:
                 error?.message ??
                 "Unable to send the MFA verification code."
-
         };
-
     }
-
 };
-
 
 // ============================================================
 // SUBMIT MFA CHALLENGE
