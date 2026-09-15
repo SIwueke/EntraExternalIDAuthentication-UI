@@ -1,5 +1,5 @@
-
 import {
+    CustomAuthPublicClientApplication,
     SignInPasswordRequiredState,
     SignInCodeRequiredState,
     SignInCompletedState,
@@ -9,20 +9,41 @@ import {
 } from "@azure/msal-browser/custom-auth";
 
 import {
-    getNativeAuthClient
-} from "./nativeAuthClient";
+    registerAuthenticationMethod,
+    verifyAuthenticationMethod,
+    getRegistrationMethods,
+    selectPreferredRegistrationMethod,
+    getAuthMethodValue
+} from "../auth/authRegistrationService";
 
-
-//----------------------------------------------------
-// Current Native Authentication Flow State
-//----------------------------------------------------
+import {nativeAuthConfig } from "../auth/nativeAuthConfig";
+// ============================================================
+// CURRENT AUTHENTICATION FLOW STATE
+// ============================================================
 
 let signInState = null;
+// ============================================================
+// NATIVE AUTH CLIENT
+// ============================================================
 
+let nativeAuthClient = null;
 
-//----------------------------------------------------
-// Get Error Message
-//----------------------------------------------------
+const getNativeAuthClient = async () => {
+
+    if (nativeAuthClient) {
+        return nativeAuthClient;
+    }
+
+    nativeAuthClient =
+    await CustomAuthPublicClientApplication.create(
+        nativeAuthConfig
+    );
+
+    return nativeAuthClient;
+};
+// ============================================================
+// ERROR HANDLING
+// ============================================================
 
 const getErrorMessage = (result) => {
 
@@ -52,87 +73,380 @@ const getErrorMessage = (result) => {
 };
 
 
-//----------------------------------------------------
-// Start Sign-In
-//----------------------------------------------------
+const isPasswordExpiredError = (result) => {
 
-export const startSignIn = async (username) => {
+    const message =
+        getErrorMessage(result);
+
+    return (
+        message.includes("AADSTS50055") ||
+        message
+            .toLowerCase()
+            .includes("password is expired")
+    );
+};
+
+
+// ============================================================
+// RESULT HELPERS
+// ============================================================
+
+const isFailed = (result) => {
+
+    return (
+        typeof result?.isFailed === "function" &&
+        result.isFailed()
+    );
+};
+
+
+const isCompleted = (result) => {
+
+    return (
+        typeof result?.isCompleted === "function" &&
+        result.isCompleted()
+    );
+};
+
+
+const isMfaRequired = (result) => {
+
+    return (
+        typeof result?.isMfaRequired === "function" &&
+        result.isMfaRequired()
+    );
+};
+
+
+const isAuthMethodRegistrationRequired = (result) => {
+
+    return (
+        typeof result?.isAuthMethodRegistrationRequired ===
+        "function" &&
+        result.isAuthMethodRegistrationRequired()
+    );
+};
+
+
+const createCompletedResult = (result) => {
+
+    return {
+
+        success: true,
+
+        step: "completed",
+
+        state:
+            result?.state ?? null,
+
+        account:
+            result?.data?.account ?? null,
+
+        authenticationResult:
+            result?.data ?? null
+
+    };
+};
+
+
+// ============================================================
+// COMMON AUTHENTICATION RESULT PROCESSOR
+//
+// This is the main architectural change.
+//
+// Every MSAL operation can eventually return:
+//
+//   failed
+//   completed
+//   password
+//   code
+//   MFA
+//   registration
+//   unsupported
+//
+// Rather than repeating that logic in every function,
+// we centralise it here.
+// ============================================================
+
+const processAuthenticationResult = async (
+    result,
+    options = {}
+) => {
+
+    const {
+        defaultStep = "error"
+    } = options;
+
+
+    console.log(
+        "========== PROCESS AUTH RESULT =========="
+    );
+
+    console.log(
+        "Result:",
+        result
+    );
+
+    console.log(
+        "Result constructor:",
+        result?.constructor?.name
+    );
+
+    console.log(
+        "State:",
+        result?.state
+    );
+
+    console.log(
+        "State constructor:",
+        result?.state?.constructor?.name
+    );
+
+    console.log(
+        "=========================================="
+    );
+
+
+    // ---------------------------------------------------------
+    // Always update the current state
+    // ---------------------------------------------------------
+
+    signInState =
+        result?.state ?? null;
+
+
+    // ---------------------------------------------------------
+    // FAILED
+    // ---------------------------------------------------------
+
+    if (isFailed(result)) {
+
+        return {
+
+            success: false,
+
+            step: defaultStep,
+
+            state:
+                signInState,
+
+            message:
+                getErrorMessage(result)
+
+        };
+
+    }
+
+
+    // ---------------------------------------------------------
+    // COMPLETED
+    // ---------------------------------------------------------
+
+    if (isCompleted(result)) {
+
+        return createCompletedResult(result);
+
+    }
+
+
+    // ---------------------------------------------------------
+    // AUTHENTICATION METHOD REGISTRATION
+    // ---------------------------------------------------------
+
+    if (
+        isAuthMethodRegistrationRequired(result)
+    ) {
+
+        return {
+
+            success: true,
+
+            step:
+                "authMethodRegistration",
+
+            state:
+                signInState,
+
+            message:
+                "An authentication method must be registered."
+
+        };
+
+    }
+
+
+    // ---------------------------------------------------------
+    // MFA
+    // ---------------------------------------------------------
+
+    if (isMfaRequired(result)) {
+
+        return await processMfaAwaitingState(
+            signInState
+        );
+
+    }
+
+
+    // ---------------------------------------------------------
+    // Explicit MFA state
+    // ---------------------------------------------------------
+
+    if (
+        signInState instanceof
+        MfaAwaitingState
+    ) {
+
+        return await processMfaAwaitingState(
+            signInState
+        );
+
+    }
+
+
+    // ---------------------------------------------------------
+    // Explicit registration state
+    // ---------------------------------------------------------
+
+    if (
+        signInState instanceof
+        AuthMethodRegistrationRequiredState
+    ) {
+
+        return {
+
+            success: true,
+
+            step:
+                "authMethodRegistration",
+
+            state:
+                signInState,
+
+            message:
+                "An authentication method must be registered."
+
+        };
+
+    }
+
+
+    // ---------------------------------------------------------
+    // Explicit verification-code state
+    // ---------------------------------------------------------
+
+    if (
+        signInState instanceof
+        SignInCodeRequiredState
+    ) {
+
+        return {
+
+            success: true,
+
+            step: "code",
+
+            state:
+                signInState,
+
+            message:
+                "Enter the verification code."
+
+        };
+
+    }
+
+
+    // ---------------------------------------------------------
+    // Unsupported
+    // ---------------------------------------------------------
+
+    console.error(
+        "Unsupported authentication state:",
+        signInState
+    );
+
+    return {
+
+        success: false,
+
+        step: defaultStep,
+
+        state:
+            signInState,
+
+        message:
+            "An unsupported authentication state was returned."
+
+    };
+
+};
+
+
+// ============================================================
+// START SIGN-IN
+// ============================================================
+
+export const startSignIn = async (
+    username
+) => {
 
     try {
+
+        const cleanUsername =
+            String(username ?? "").trim();
+
+
+        if (!cleanUsername) {
+
+            return {
+
+                success: false,
+
+                step: "email",
+
+                message:
+                    "Please enter your email address."
+
+            };
+
+        }
+
 
         const authClient =
             await getNativeAuthClient();
 
-        //------------------------------------------------
-        // Start native authentication
-        //------------------------------------------------
+
+        console.log(
+            "========== START SIGN-IN =========="
+        );
+
+        console.log(
+            "Username:",
+            cleanUsername
+        );
+
 
         const result =
             await authClient.signIn({
-                username
+
+                username:
+                    cleanUsername
+
             });
 
-        //------------------------------------------------
-        // Diagnostics
-        //------------------------------------------------
 
         console.log(
-            "========== NATIVE AUTH RESULT =========="
-        );
-
-        console.log(
-            "Result:",
+            "Native sign-in result:",
             result
         );
 
-        console.log(
-            "Result constructor:",
-            result?.constructor?.name
-        );
 
-        console.log(
-            "Result state:",
-            result?.state
-        );
+        // ------------------------------------------------------
+        // FAILED
+        // ------------------------------------------------------
 
-        console.log(
-            "Result state constructor:",
-            result?.state?.constructor?.name
-        );
-
-        console.log(
-            "isFailed:",
-            result?.isFailed?.()
-        );
-
-        console.log(
-            "isCompleted:",
-            result?.isCompleted?.()
-        );
-
-        console.log(
-            "isMfaRequired:",
-            result?.isMfaRequired?.()
-        );
-
-        console.log(
-            "isAuthMethodRegistrationRequired:",
-            result?.isAuthMethodRegistrationRequired?.()
-        );
-
-        console.log(
-            "========================================"
-        );
-
-
-        //------------------------------------------------
-        // Failed
-        //------------------------------------------------
-
-        if (
-            typeof result?.isFailed === "function" &&
-            result.isFailed()
-        ) {
+        if (isFailed(result)) {
 
             signInState = null;
 
@@ -140,7 +454,7 @@ export const startSignIn = async (username) => {
 
                 success: false,
 
-                step: "error",
+                step: "email",
 
                 message:
                     getErrorMessage(result)
@@ -150,17 +464,17 @@ export const startSignIn = async (username) => {
         }
 
 
-        //------------------------------------------------
+        // ------------------------------------------------------
         // Store state
-        //------------------------------------------------
+        // ------------------------------------------------------
 
         signInState =
             result?.state ?? null;
 
 
-        //------------------------------------------------
-        // Password Required
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // PASSWORD REQUIRED
+        // ------------------------------------------------------
 
         if (
             signInState instanceof
@@ -173,133 +487,27 @@ export const startSignIn = async (username) => {
 
                 step: "password",
 
-                message:
-                    "Password required.",
-
                 state:
-                    signInState
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // MFA Required
-        //
-        // MFA can potentially be returned directly
-        // from signIn().
-        //------------------------------------------------
-
-        if (
-            typeof result?.isMfaRequired ===
-            "function" &&
-            result.isMfaRequired()
-        ) {
-
-            return await processMfaAwaitingState(
-                result.state
-            );
-
-        }
-
-
-        //------------------------------------------------
-        // Explicit MfaAwaitingState check
-        //
-        // This is important because the SDK may return
-        // an MfaAwaitingState even when the result's
-        // isMfaRequired() helper is not available.
-        //------------------------------------------------
-
-        if (
-            result?.state instanceof
-            MfaAwaitingState
-        ) {
-
-            return await processMfaAwaitingState(
-                result.state
-            );
-
-        }
-
-
-        //------------------------------------------------
-        // Code Required
-        //------------------------------------------------
-
-        if (
-            signInState instanceof
-            SignInCodeRequiredState
-        ) {
-
-            return {
-
-                success: true,
-
-                step: "code",
+                    signInState,
 
                 message:
-                    "Enter the verification code.",
-
-                state:
-                    signInState
+                    "Password required."
 
             };
 
         }
 
 
-        //------------------------------------------------
-        // Authentication Already Completed
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // Process all other states
+        // ------------------------------------------------------
 
-        if (
-            signInState instanceof
-            SignInCompletedState
-        ) {
-
-            return {
-
-                success: true,
-
-                step: "completed",
-
-                account:
-                    result.data?.account ??
-                    null,
-
-                authenticationResult:
-                    result.data ??
-                    null
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // Unsupported state
-        //------------------------------------------------
-
-        console.error(
-            "Unsupported state returned from signIn():",
-            signInState
+        return await processAuthenticationResult(
+            result,
+            {
+                defaultStep: "email"
+            }
         );
-
-        return {
-
-            success: false,
-
-            step: "error",
-
-            state:
-                signInState,
-
-            message:
-                "An unsupported sign-in state was returned."
-
-        };
 
     }
     catch (error) {
@@ -315,7 +523,7 @@ export const startSignIn = async (username) => {
 
             success: false,
 
-            step: "error",
+            step: "email",
 
             message:
                 error?.message ??
@@ -328,61 +536,164 @@ export const startSignIn = async (username) => {
 };
 
 
-//----------------------------------------------------
-// Get Current User
-//----------------------------------------------------
+// ============================================================
+// SUBMIT PASSWORD
+// ============================================================
 
-export const getCurrentUser = async () => {
+export const submitPassword = async (
+    password
+) => {
 
     try {
 
-        const authClient =
-            await getNativeAuthClient();
+        if (!signInState) {
 
-        const account =
-            authClient.getCurrentAccount();
+            return {
+
+                success: false,
+
+                step: "error",
+
+                message:
+                    "No authentication state is active."
+
+            };
+
+        }
+
+
+        if (
+            !(
+                signInState instanceof
+                SignInPasswordRequiredState
+            )
+        ) {
+
+            console.warn(
+                "submitPassword called while state is:",
+                signInState?.constructor?.name
+            );
+
+        }
+
+
+        const cleanPassword =
+            String(password ?? "");
+
+
+        if (!cleanPassword) {
+
+            return {
+
+                success: false,
+
+                step: "password",
+
+                message:
+                    "Please enter your password."
+
+            };
+
+        }
+
 
         console.log(
-            "========== CURRENT ACCOUNT =========="
+            "========== SUBMIT PASSWORD =========="
+        );
+
+
+        const result =
+            await signInState.submitPassword(
+                cleanPassword
+            );
+        //============================
+        console.log(
+            "========== AFTER PASSWORD =========="
         );
 
         console.log(
-            "Current account:",
-            account
+            "Full result:",
+            result
         );
 
         console.log(
-            "Account constructor:",
-            account?.constructor?.name
+            "Result constructor:",
+            result?.constructor?.name
         );
 
         console.log(
-            "====================================="
+            "Result state:",
+            result?.state
         );
 
-        return {
+        console.log(
+            "State constructor:",
+            result?.state?.constructor?.name
+        );
 
-            authenticated:
-                !!account,
+        console.log(
+            "isCompleted:",
+            typeof result?.isCompleted === "function"
+                ? result.isCompleted()
+                : "not available"
+        );
 
-            data:
-                account ?? null
+        console.log(
+            "isMfaRequired:",
+            typeof result?.isMfaRequired === "function"
+                ? result.isMfaRequired()
+                : "not available"
+        );
 
-        };
+        console.log(
+            "isFailed:",
+            typeof result?.isFailed === "function"
+                ? result.isFailed()
+                : "not available"
+        );
+
+        console.log(
+            "isAuthMethodRegistrationRequired:",
+            typeof result?.isAuthMethodRegistrationRequired === "function"
+                ? result.isAuthMethodRegistrationRequired()
+                : "not available"
+        );
+
+        console.log(
+            "===================================="
+        );
+            //===================
+
+        console.log(
+            "Password authentication result:",
+            result
+        );
+
+
+        return await processAuthenticationResult(
+            result,
+            {
+                defaultStep: "password"
+            }
+        );
 
     }
     catch (error) {
 
         console.error(
-            "Get current user error:",
+            "Native authentication password error:",
             error
         );
 
         return {
 
-            authenticated: false,
+            success: false,
 
-            data: null
+            step: "password",
+
+            message:
+                error?.message ??
+                "Unable to submit password."
 
         };
 
@@ -390,27 +701,10 @@ export const getCurrentUser = async () => {
 
 };
 
-//----------------------------------------------------
-// Process MFA Awaiting State
-//
-// MfaAwaitingState means:
-//
-// "MFA is required and the application must select
-//  one of the user's registered authentication
-//  methods."
-//
-// IMPORTANT:
-//
-// We DO NOT call requestChallenge() here.
-//
-// We return the MfaAwaitingState and the available
-// methods to the caller.
-//
-// The caller then selects a method and calls:
-//
-//     requestMfaChallenge(method.id)
-//
-//----------------------------------------------------
+
+// ============================================================
+// PROCESS MFA AWAITING STATE
+// ============================================================
 
 const processMfaAwaitingState = async (
     mfaState
@@ -431,17 +725,7 @@ const processMfaAwaitingState = async (
     );
 
 
-    //------------------------------------------------
-    // Validate MFA state
-    //------------------------------------------------
-
-    if (
-        !mfaState
-    ) {
-
-        console.error(
-            "MFA was required but no MFA state was returned."
-        );
+    if (!mfaState) {
 
         return {
 
@@ -457,39 +741,16 @@ const processMfaAwaitingState = async (
     }
 
 
-    //------------------------------------------------
-    // Store MFA state
-    //------------------------------------------------
-
     signInState =
         mfaState;
 
 
-    //------------------------------------------------
-    // Verify expected state type
-    //------------------------------------------------
-
-    if (
-        !(
-            mfaState instanceof
-            MfaAwaitingState
-        )
-    ) {
-
-        console.warn(
-            "Expected MfaAwaitingState but received:",
-            mfaState?.constructor?.name
-        );
-
-    }
-
-
-    //------------------------------------------------
-    // Get authentication methods
-    //------------------------------------------------
-
     let authMethods = [];
 
+
+    // ---------------------------------------------------------
+    // Get available authentication methods
+    // ---------------------------------------------------------
 
     if (
         typeof mfaState.getAuthMethods ===
@@ -526,37 +787,115 @@ const processMfaAwaitingState = async (
     }
 
 
-    //------------------------------------------------
-    // Diagnostics
-    //------------------------------------------------
+    // =========================================================
+    // PHASE 6.1 DIAGNOSTICS
+    // =========================================================
 
     console.log(
-        "MFA authentication methods:",
-        authMethods
+        "========== AVAILABLE MFA METHODS =========="
     );
 
     console.log(
-        "MFA authentication methods JSON:",
-        JSON.stringify(
-            authMethods,
-            null,
-            2
-        )
+        "Number of methods:",
+        authMethods?.length ?? 0
+    );
+
+    if (Array.isArray(authMethods)) {
+
+        authMethods.forEach(
+            (method, index) => {
+
+                console.log(
+                    `----- MFA METHOD ${index + 1} -----`
+                );
+
+                console.log(
+                    "Full method:",
+                    method
+                );
+                console.log(
+                "Own property names:",
+                Object.getOwnPropertyNames(method)
+            );
+
+            console.log(
+                "Own property symbols:",
+                Object.getOwnPropertySymbols(method)
+            );
+
+            console.log(
+                "Prototype:",
+                Object.getPrototypeOf(method)
+            );
+
+            console.log(
+                "Prototype property names:",
+                Object.getOwnPropertyNames(
+                    Object.getPrototypeOf(method) ?? {}
+                )
+            );
+
+            console.log(
+                "JSON:",
+                JSON.stringify(method, null, 2)
+            );
+                console.log(
+                    "Constructor:",
+                    method?.constructor?.name
+                );
+
+                console.log(
+                    "ID:",
+                    method?.id
+                );
+
+                console.log(
+                    "Type:",
+                    method?.type
+                );
+
+                console.log(
+                    "Method:",
+                    method?.method
+                );
+
+                console.log(
+                    "Display name:",
+                    method?.displayName
+                );
+
+                console.log(
+                    "Authentication method ID:",
+                    method?.authenticationMethodId
+                );
+
+                console.log(
+                    "Value:",
+                    method?.value
+                );
+
+                console.log(
+                    "=========================================="
+                );
+
+            }
+        );
+
+    }
+
+    console.log(
+        "=========================================="
     );
 
 
-    //------------------------------------------------
-    // Make sure at least one method exists
-    //------------------------------------------------
+    // ---------------------------------------------------------
+    // No methods
+    // ---------------------------------------------------------
 
     if (
         !authMethods ||
         authMethods.length === 0
     ) {
-
-        console.error(
-            "No MFA authentication methods are available."
-        );
 
         return {
 
@@ -572,55 +911,9 @@ const processMfaAwaitingState = async (
     }
 
 
-    //------------------------------------------------
-    // MFA client diagnostics
-    //------------------------------------------------
-
-    const mfaClient =
-        mfaState
-            ?.stateParameters
-            ?.mfaClient;
-
-
-    console.log(
-        "========== MFA CLIENT =========="
-    );
-
-    console.log(
-        "MFA client:",
-        mfaClient
-    );
-
-    console.log(
-        "MFA client constructor:",
-        mfaClient?.constructor?.name
-    );
-
-    console.log(
-        "MFA client methods:",
-        mfaClient
-            ?
-            Object.getOwnPropertyNames(
-                Object.getPrototypeOf(
-                    mfaClient
-                )
-            )
-            :
-            []
-    );
-
-    console.log(
-        "================================"
-    );
-
-
-    //------------------------------------------------
-    // Return MFA state to React
-    //------------------------------------------------
-
-    console.log(
-        "Returning MFA state to React."
-    );
+    // ---------------------------------------------------------
+    // Return methods to UI
+    // ---------------------------------------------------------
 
     return {
 
@@ -631,8 +924,7 @@ const processMfaAwaitingState = async (
         state:
             mfaState,
 
-        authMethods:
-            authMethods,
+        authMethods,
 
         message:
             "MFA verification is required."
@@ -641,496 +933,15 @@ const processMfaAwaitingState = async (
 
 };
 
-
-//----------------------------------------------------
-// Submit Password
-//----------------------------------------------------
-
-export const submitPassword = async (password) => {
-
-    try {
-
-        console.log(
-            "========== SUBMIT PASSWORD =========="
-        );
-
-        console.log(
-            "Current signInState:",
-            signInState
-        );
-
-        console.log(
-            "Current state constructor:",
-            signInState?.constructor?.name
-        );
-
-
-        //------------------------------------------------
-        // Validate password state
-        //------------------------------------------------
-
-        if (!signInState) {
-
-            return {
-
-                success: false,
-
-                step: "error",
-
-                message:
-                    "No authentication state is active."
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // Validate password
-        //------------------------------------------------
-
-        const cleanPassword =
-            String(password ?? "");
-
-
-        if (!cleanPassword) {
-
-            return {
-
-                success: false,
-
-                step: "password",
-
-                message:
-                    "Please enter your password."
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // Submit password
-        //------------------------------------------------
-
-        const result =
-            await signInState.submitPassword(
-                cleanPassword
-            );
-
-
-        //------------------------------------------------
-        // Diagnostics
-        //------------------------------------------------
-
-        console.log(
-            "========== RAW MSAL PASSWORD RESULT =========="
-        );
-
-        console.log(
-            "result:",
-            result
-        );
-
-        console.log(
-            "result constructor:",
-            result?.constructor?.name
-        );
-
-        console.log(
-            "isFailed:",
-            typeof result?.isFailed === "function"
-                ? result.isFailed()
-                : "N/A"
-        );
-
-        console.log(
-            "isCompleted:",
-            typeof result?.isCompleted === "function"
-                ? result.isCompleted()
-                : "N/A"
-        );
-
-        console.log(
-            "isMfaRequired:",
-            typeof result?.isMfaRequired === "function"
-                ? result.isMfaRequired()
-                : "N/A"
-        );
-
-        console.log(
-            "isAuthMethodRegistrationRequired:",
-            typeof result?.isAuthMethodRegistrationRequired === "function"
-                ? result.isAuthMethodRegistrationRequired()
-                : "N/A"
-        );
-
-        console.log(
-            "state:",
-            result?.state
-        );
-
-        console.log(
-            "state constructor:",
-            result?.state?.constructor?.name
-        );
-
-        console.log(
-            "=============================================="
-        );
-
-
-        //------------------------------------------------
-        // Always update state first
-        //------------------------------------------------
-
-        signInState =
-            result?.state ?? null;
-
-
-        //------------------------------------------------
-        // 1. FAILED
-        //------------------------------------------------
-
-        if (
-            typeof result?.isFailed === "function" &&
-            result.isFailed()
-        ) {
-
-            console.error(
-                "PASSWORD AUTHENTICATION FAILED:",
-                result
-            );
-
-            return {
-
-                success: false,
-
-                step: "password",
-
-                state:
-                    signInState,
-
-                message:
-                    getErrorMessage(result)
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // 2. COMPLETED
-        //
-        // IMPORTANT:
-        //
-        // If this is true, authentication is finished.
-        // Do NOT try to determine another step.
-        //------------------------------------------------
-
-        if (
-            typeof result?.isCompleted === "function" &&
-            result.isCompleted()
-        ) {
-
-            console.log(
-                "========== PASSWORD AUTHENTICATION COMPLETED =========="
-            );
-
-            console.log(
-                "Authentication completed directly after password."
-            );
-
-            console.log(
-                "Account:",
-                result.data?.account
-            );
-
-            console.log(
-                "Authentication result:",
-                result.data
-            );
-
-            console.log(
-                "========================================================"
-            );
-
-
-            return {
-
-                success: true,
-
-                step: "completed",
-
-                state:
-                    signInState,
-
-                account:
-                    result.data?.account ??
-                    null,
-
-                authenticationResult:
-                    result.data ??
-                    null
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // 3. AUTHENTICATION METHOD REGISTRATION
-        //------------------------------------------------
-
-        // if (
-        //     typeof result?.isAuthMethodRegistrationRequired ===
-        //     "function" &&
-        //     result.isAuthMethodRegistrationRequired()
-        // ) {
-
-        //     console.log(
-        //         "========== AUTH METHOD REGISTRATION REQUIRED =========="
-        //     );
-
-        //     console.log(
-        //         "Registration state:",
-        //         signInState
-        //     );
-
-        //     console.log(
-        //         "Registration state constructor:",
-        //         signInState?.constructor?.name
-        //     );
-
-        //     console.log(
-        //         "======================================================="
-        //     );
-
-
-        //     return {
-
-        //         success: true,
-
-        //         step: "authMethodRegistration",
-
-        //         state:
-        //             signInState,
-
-        //         message:
-        //             "An authentication method must be registered."
-
-        //     };
-
-        // }
-
-       //------------------------------------------------
-        // Authentication method registration required
-        //------------------------------------------------
-
-        if (
-            typeof result?.isAuthMethodRegistrationRequired ===
-            "function" &&
-            result.isAuthMethodRegistrationRequired()
-        ) {
-
-            signInState =  result.state;
-
-            return {
-
-                success: true,
-
-                step:
-                    "authMethodRegistration",
-
-                state:
-                    signInState,
-
-                message:
-                    "An authentication method must be registered."
-
-            };
-
-        }
-        //------------------------------------------------
-        // 4. MFA REQUIRED
-        //------------------------------------------------
-
-        if (
-            typeof result?.isMfaRequired ===
-            "function" &&
-            result.isMfaRequired()
-        ) {
-
-            return await processMfaAwaitingState(
-                signInState
-            );
-
-        }
-
-
-        //------------------------------------------------
-        // 5. Explicit MFA state fallback
-        //------------------------------------------------
-
-        if (
-            signInState instanceof
-            MfaAwaitingState
-        ) {
-
-            return await processMfaAwaitingState(
-                signInState
-            );
-
-        }
-
-
-        //------------------------------------------------
-        // 6. Explicit registration state fallback
-        //------------------------------------------------
-
-        if (
-            signInState instanceof
-            AuthMethodRegistrationRequiredState
-        ) {
-
-            return {
-
-                success: true,
-
-                step: "authMethodRegistration",
-
-                state:
-                    signInState,
-
-                message:
-                    "An authentication method must be registered."
-
-            };
-
-        }
-
-
-        //------------------------------------------------
-        // 7. Unexpected result
-        //------------------------------------------------
-
-        console.error(
-            "========== UNKNOWN PASSWORD RESULT =========="
-        );
-
-        console.error(
-            "Result:",
-            result
-        );
-
-        console.error(
-            "Result constructor:",
-            result?.constructor?.name
-        );
-
-        console.error(
-            "State:",
-            signInState
-        );
-
-        console.error(
-            "State constructor:",
-            signInState?.constructor?.name
-        );
-
-        console.error(
-            "============================================="
-        );
-
-
-        return {
-
-            success: false,
-
-            step: "error",
-
-            state:
-                signInState,
-
-            message:
-                "An unsupported authentication state was returned after submitting the password."
-
-        };
-
-    }
-    catch (error) {
-
-        console.error(
-            "Native authentication password error:",
-            error
-        );
-
-        return {
-
-            success: false,
-
-            step: "password",
-
-            message:
-                error?.message ??
-                "Unable to submit password."
-
-        };
-
-    }
-
-};
-
-
-//----------------------------------------------------
-// Request MFA Challenge
-//
-// MfaAwaitingState means that the available MFA
-// method must first be selected.
-//
-// For your current migrated users the method returned
-// by Entra is:
-//
-//     challenge_type:  oob
-//     challenge_channel: email
-//
-// Calling requestChallenge(method.id) causes Entra
-// to issue the email MFA challenge.
-//
-// Expected next state:
-//
-//     MfaVerificationRequiredState
-//----------------------------------------------------
+// ============================================================
+// REQUEST MFA CHALLENGE
+// ============================================================
 
 export const requestMfaChallenge = async (
     authenticationMethodId
 ) => {
 
     try {
-
-        console.log(
-            "========== REQUEST MFA CHALLENGE =========="
-        );
-
-        console.log(
-            "Current signInState:",
-            signInState
-        );
-
-        console.log(
-            "Current state constructor:",
-            signInState?.constructor?.name
-        );
-
-        console.log(
-            "Authentication method ID:",
-            authenticationMethodId
-        );
-
-
-        //------------------------------------------------
-        // Validate state
-        //------------------------------------------------
 
         if (
             !signInState ||
@@ -1139,10 +950,6 @@ export const requestMfaChallenge = async (
                 MfaAwaitingState
             )
         ) {
-
-            console.error(
-                "MFA awaiting state is not active."
-            );
 
             return {
 
@@ -1158,13 +965,7 @@ export const requestMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Validate method ID
-        //------------------------------------------------
-
-        if (
-            !authenticationMethodId
-        ) {
+        if (!authenticationMethodId) {
 
             return {
 
@@ -1180,77 +981,66 @@ export const requestMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Request challenge
-        //------------------------------------------------
-
-        const result =
-            await signInState.requestChallenge(
-                authenticationMethodId
-            );
-
-
-        //------------------------------------------------
-        // Diagnostics
-        //------------------------------------------------
-
         console.log(
-            "========== MFA CHALLENGE RESULT =========="
+            "========== REQUEST MFA CHALLENGE =========="
         );
 
         console.log(
-            "Result:",
+            "Authentication method:",
+            authenticationMethodId
+        );
+
+
+        const result =
+    await signInState.requestChallenge(
+        authenticationMethodId
+    );
+
+    console.log("========== MFA CHALLENGE RAW RESULT ==========");
+
+    console.log("Result:", result);
+    console.log("Result constructor:", result?.constructor?.name);
+    console.log("Result state:", result?.state);
+    console.log(
+        "State constructor:",
+        result?.state?.constructor?.name
+    );
+
+    console.log(
+        "isVerificationRequired:",
+        typeof result?.isVerificationRequired === "function"
+            ? result.isVerificationRequired()
+            : "not available"
+    );
+
+    console.log(
+        "isCompleted:",
+        typeof result?.isCompleted === "function"
+            ? result.isCompleted()
+            : "not available"
+    );
+
+    console.log(
+        "isFailed:",
+        typeof result?.isFailed === "function"
+            ? result.isFailed()
+            : "not available"
+    );
+
+    console.log("==============================================");
+
+
+        console.log(
+            "MFA challenge result:",
             result
         );
 
-        console.log(
-            "Result constructor:",
-            result?.constructor?.name
-        );
 
-        console.log(
-            "State:",
-            result?.state
-        );
+        // ------------------------------------------------------
+        // FAILED
+        // ------------------------------------------------------
 
-        console.log(
-            "State constructor:",
-            result?.state?.constructor?.name
-        );
-
-        console.log(
-            "isFailed:",
-            result?.isFailed?.()
-        );
-
-        console.log(
-            "isVerificationRequired:",
-            result?.isVerificationRequired?.()
-        );
-
-        console.log(
-            "isCompleted:",
-            result?.isCompleted?.()
-        );
-
-        console.log(
-            "=========================================="
-        );
-
-
-        //------------------------------------------------
-        // Failed
-        //------------------------------------------------
-
-        if (
-            typeof result?.isFailed === "function" &&
-            result.isFailed()
-        ) {
-
-            console.error(
-                "MFA CHALLENGE REQUEST FAILED:",
-                result
-            );
+        if (isFailed(result)) {
 
             return {
 
@@ -1266,9 +1056,17 @@ export const requestMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Verification required
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // Update state
+        // ------------------------------------------------------
+
+        signInState =
+            result?.state ?? null;
+
+
+        // ------------------------------------------------------
+        // VERIFICATION REQUIRED
+        // ------------------------------------------------------
 
         if (
             typeof result?.isVerificationRequired ===
@@ -1276,29 +1074,6 @@ export const requestMfaChallenge = async (
             result.isVerificationRequired()
         ) {
 
-            signInState =
-                result.state;
-
-
-            console.log(
-                "========== MFA VERIFICATION REQUIRED =========="
-            );
-
-            console.log(
-                "New MFA state:",
-                signInState
-            );
-
-            console.log(
-                "New MFA state constructor:",
-                signInState?.constructor?.name
-            );
-
-            console.log(
-                "================================================"
-            );
-
-
             return {
 
                 success: true,
@@ -1316,24 +1091,15 @@ export const requestMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Explicit MfaVerificationRequiredState check
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // Explicit state check
+        // ------------------------------------------------------
 
         if (
-            result?.state instanceof
+            signInState instanceof
             MfaVerificationRequiredState
         ) {
 
-            signInState =
-                result.state;
-
-
-            console.log(
-                "MFA state explicitly identified as MfaVerificationRequiredState."
-            );
-
-
             return {
 
                 success: true,
@@ -1351,47 +1117,20 @@ export const requestMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Completed
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // COMPLETED
+        // ------------------------------------------------------
 
-        if (
-            typeof result?.isCompleted === "function" &&
-            result.isCompleted()
-        ) {
+        if (isCompleted(result)) {
 
-            signInState =
-                result.state;
-
-
-            return {
-
-                success: true,
-
-                step: "completed",
-
-                account:
-                    result.data?.account ??
-                    null,
-
-                authenticationResult:
-                    result.data ??
-                    null
-
-            };
+            return createCompletedResult(result);
 
         }
 
 
-        //------------------------------------------------
-        // Unexpected result
-        //------------------------------------------------
-
-        console.error(
-            "Unexpected MFA challenge result:",
-            result
-        );
-
+        // ------------------------------------------------------
+        // Unexpected
+        // ------------------------------------------------------
 
         return {
 
@@ -1400,7 +1139,7 @@ export const requestMfaChallenge = async (
             step: "error",
 
             state:
-                result?.state,
+                signInState,
 
             message:
                 "Unable to start the MFA verification challenge."
@@ -1432,45 +1171,15 @@ export const requestMfaChallenge = async (
 };
 
 
-//----------------------------------------------------
-// Submit MFA Challenge
-//
-// This is where the user-entered email OTP is sent
-// to Entra.
-//
-// Expected current state:
-//
-//     MfaVerificationRequiredState
-//
-// Expected successful result:
-//
-//     SignInCompletedState
-//----------------------------------------------------
+// ============================================================
+// SUBMIT MFA CHALLENGE
+// ============================================================
 
 export const submitMfaChallenge = async (
     code
 ) => {
 
     try {
-
-        console.log(
-            "========== SUBMIT MFA CHALLENGE =========="
-        );
-
-        console.log(
-            "Current signInState:",
-            signInState
-        );
-
-        console.log(
-            "Current state constructor:",
-            signInState?.constructor?.name
-        );
-
-
-        //------------------------------------------------
-        // Validate state
-        //------------------------------------------------
 
         if (
             !signInState ||
@@ -1479,10 +1188,6 @@ export const submitMfaChallenge = async (
                 MfaVerificationRequiredState
             )
         ) {
-
-            console.error(
-                "MFA verification state is not active."
-            );
 
             return {
 
@@ -1497,10 +1202,6 @@ export const submitMfaChallenge = async (
 
         }
 
-
-        //------------------------------------------------
-        // Clean code
-        //------------------------------------------------
 
         const cleanCode =
             String(code ?? "").trim();
@@ -1523,18 +1224,9 @@ export const submitMfaChallenge = async (
 
 
         console.log(
-            "Submitting MFA challenge code."
+            "========== SUBMIT MFA CHALLENGE =========="
         );
 
-        console.log(
-            "MFA code length:",
-            cleanCode.length
-        );
-
-
-        //------------------------------------------------
-        // Submit OTP
-        //------------------------------------------------
 
         const result =
             await signInState.submitChallenge(
@@ -1542,73 +1234,41 @@ export const submitMfaChallenge = async (
             );
 
 
-        //------------------------------------------------
-        // Diagnostics
-        //------------------------------------------------
-
         console.log(
-            "========== MFA CHALLENGE SUBMIT RESULT =========="
-        );
-
-        console.log(
-            "Result:",
+            "MFA submit result:",
             result
         );
 
-        console.log(
-            "Result constructor:",
-            result?.constructor?.name
-        );
 
-        console.log(
-            "isFailed:",
-            result?.isFailed?.()
-        );
+        // ------------------------------------------------------
+        // FAILED
+        // ------------------------------------------------------
 
-        console.log(
-            "isCompleted:",
-            result?.isCompleted?.()
-        );
+        if (isFailed(result)) {
 
-        console.log(
-            "isMfaRequired:",
-            result?.isMfaRequired?.()
-        );
+            // Password expired
+            if (
+                isPasswordExpiredError(result)
+            ) {
 
-        console.log(
-            "State:",
-            result?.state
-        );
+                return {
 
-        console.log(
-            "State constructor:",
-            result?.state?.constructor?.name
-        );
+                    success: false,
 
-        console.log(
-            "=================================================="
-        );
+                    step: "passwordExpired",
+
+                    state:
+                        result?.state ?? null,
+
+                    message:
+                        "Your password has expired. Please reset your password."
+
+                };
+
+            }
 
 
-        //------------------------------------------------
-        // Failed
-        //------------------------------------------------
-
-        if (
-            typeof result?.isFailed === "function" &&
-            result.isFailed()
-        ) {
-
-            console.error(
-                "MFA CHALLENGE FAILED:",
-                result
-            );
-
-
-            //------------------------------------------------
             // Incorrect OTP
-            //------------------------------------------------
-
             if (
                 result.error &&
                 typeof
@@ -1645,66 +1305,34 @@ export const submitMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Completed
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // Update state
+        // ------------------------------------------------------
 
-        if (
-            typeof result?.isCompleted === "function" &&
-            result.isCompleted()
-        ) {
+        signInState =
+            result?.state ?? null;
+
+
+        // ------------------------------------------------------
+        // COMPLETED
+        // ------------------------------------------------------
+
+        if (isCompleted(result)) {
 
             console.log(
                 "========== MFA AUTHENTICATION COMPLETED =========="
             );
 
-            console.log(
-                "Account:",
-                result.data?.account
-            );
-
-            console.log(
-                "Authentication result:",
-                result.data
-            );
-
-            console.log(
-                "=================================================="
-            );
-
-
-            signInState =
-                result.state;
-
-
-            return {
-
-                success: true,
-
-                step: "completed",
-
-                account:
-                    result.data?.account ??
-                    null,
-
-                authenticationResult:
-                    result.data ??
-                    null
-
-            };
+            return createCompletedResult(result);
 
         }
 
 
-        //------------------------------------------------
-        // MFA may potentially require another state
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // MFA required again
+        // ------------------------------------------------------
 
-        if (
-            typeof result?.isMfaRequired ===
-            "function" &&
-            result.isMfaRequired()
-        ) {
+        if (isMfaRequired(result)) {
 
             return await processMfaAwaitingState(
                 result.state
@@ -1713,17 +1341,9 @@ export const submitMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Update state
-        //------------------------------------------------
-
-        signInState =
-            result?.state ?? null;
-
-
-        //------------------------------------------------
-        // If another verification state was returned
-        //------------------------------------------------
+        // ------------------------------------------------------
+        // Another verification state
+        // ------------------------------------------------------
 
         if (
             signInState instanceof
@@ -1747,35 +1367,14 @@ export const submitMfaChallenge = async (
         }
 
 
-        //------------------------------------------------
-        // Unexpected state
-        //------------------------------------------------
-
-        console.error(
-            "MFA challenge did not complete."
-        );
-
-        console.error(
-            "Result:",
-            result
-        );
-
-        console.error(
-            "New state:",
-            signInState
-        );
-
-        console.error(
-            "New state constructor:",
-            signInState?.constructor?.name
-        );
-
-
         return {
 
             success: false,
 
             step: "error",
+
+            state:
+                signInState,
 
             message:
                 "The MFA verification did not complete the sign-in."
@@ -1789,7 +1388,6 @@ export const submitMfaChallenge = async (
             "MFA challenge submission error:",
             error
         );
-
 
         return {
 
@@ -1808,223 +1406,28 @@ export const submitMfaChallenge = async (
 };
 
 
-//----------------------------------------------------
-// Existing Standard Verification Code
+// ============================================================
+// STANDARD SIGN-IN VERIFICATION CODE
 //
-// Retained for non-MFA native-auth flows.
-//----------------------------------------------------
-
-export const submitVerificationCode =
-    async (code) => {
-
-        try {
-
-            //------------------------------------------------
-            // Validate state
-            //------------------------------------------------
-
-            if (
-                !signInState ||
-                !(
-                    signInState instanceof
-                    SignInCodeRequiredState
-                )
-            ) {
-
-                return {
-
-                    success: false,
-
-                    step: "error",
-
-                    message:
-                        "No verification code step is active."
-
-                };
-
-            }
-
-
-            //------------------------------------------------
-            // Clean code
-            //------------------------------------------------
-
-            const cleanCode =
-                String(code ?? "").trim();
-
-
-            if (!cleanCode) {
-
-                return {
-
-                    success: false,
-
-                    step: "code",
-
-                    message:
-                        "Please enter the verification code."
-
-                };
-
-            }
-
-
-            //------------------------------------------------
-            // Submit code
-            //------------------------------------------------
-
-            const result =
-                await signInState.submitCode(
-                    cleanCode
-                );
-
-
-            //------------------------------------------------
-            // Diagnostics
-            //------------------------------------------------
-
-            console.log(
-                "========== STANDARD CODE RESULT =========="
-            );
-
-            console.log(
-                "Result:",
-                result
-            );
-
-            console.log(
-                "Result constructor:",
-                result?.constructor?.name
-            );
-
-            console.log(
-                "State:",
-                result?.state
-            );
-
-            console.log(
-                "State constructor:",
-                result?.state?.constructor?.name
-            );
-
-            console.log(
-                "isFailed:",
-                result?.isFailed?.()
-            );
-
-            console.log(
-                "isCompleted:",
-                result?.isCompleted?.()
-            );
-
-            console.log(
-                "isMfaRequired:",
-                result?.isMfaRequired?.()
-            );
-
-            console.log(
-                "=========================================="
-            );
-
-
-            //------------------------------------------------
-            // Failed
-            //------------------------------------------------
-
-            if (
-                typeof result?.isFailed === "function" &&
-                result.isFailed()
-            ) {
-
-                return {
-
-                    success: false,
-
-                    step: "code",
-
-                    message:
-                        getErrorMessage(result)
-
-                };
-
-            }
-
-
-            //------------------------------------------------
-            // Completed
-            //------------------------------------------------
-
-            if (
-                typeof result?.isCompleted === "function" &&
-                result.isCompleted()
-            ) {
-
-                signInState =
-                    result.state;
-
-                return {
-
-                    success: true,
-
-                    step: "completed",
-
-                    account:
-                        result.data?.account ??
-                        null,
-
-                    authenticationResult:
-                        result.data ??
-                        null
-
-                };
-
-            }
-
-
-            //------------------------------------------------
-            // MFA
-            //------------------------------------------------
-
-            if (
-                typeof result?.isMfaRequired ===
-                "function" &&
-                result.isMfaRequired()
-            ) {
-
-                return await processMfaAwaitingState(
-                    result.state
-                );
-
-            }
-
-
-            //------------------------------------------------
-            // Explicit MFA state
-            //------------------------------------------------
-
-            if (
-                result?.state instanceof
-                MfaAwaitingState
-            ) {
-
-                return await processMfaAwaitingState(
-                    result.state
-                );
-
-            }
-
-
-            //------------------------------------------------
-            // Update state
-            //------------------------------------------------
-
-            signInState =
-                result?.state ?? null;
-
-
-            //------------------------------------------------
-            // Unexpected state
-            //------------------------------------------------
+// This remains separate from MFA.
+//
+// This is important because your existing email authentication
+// flow must continue to work.
+// ============================================================
+
+export const submitVerificationCode = async (
+    code
+) => {
+
+    try {
+
+        if (
+            !signInState ||
+            !(
+                signInState instanceof
+                SignInCodeRequiredState
+            )
+        ) {
 
             return {
 
@@ -2032,22 +1435,19 @@ export const submitVerificationCode =
 
                 step: "error",
 
-                state:
-                    signInState,
-
                 message:
-                    "Verification did not complete the sign-in."
+                    "No verification code step is active."
 
             };
 
         }
-        catch (error) {
 
-            console.error(
-                "Native authentication code error:",
-                error
-            );
 
+        const cleanCode =
+            String(code ?? "").trim();
+
+
+        if (!cleanCode) {
 
             return {
 
@@ -2056,19 +1456,118 @@ export const submitVerificationCode =
                 step: "code",
 
                 message:
-                    error?.message ??
-                    "Unable to verify the code."
+                    "Please enter the verification code."
 
             };
 
         }
 
-    };
+
+        console.log(
+            "========== SUBMIT STANDARD CODE =========="
+        );
 
 
-//----------------------------------------------------
-// Clear Current Authentication Flow
-//----------------------------------------------------
+        const result =
+            await signInState.submitCode(
+                cleanCode
+            );
+
+
+        console.log(
+            "Standard code result:",
+            result
+        );
+
+
+        return await processAuthenticationResult(
+            result,
+            {
+                defaultStep: "code"
+            }
+        );
+
+    }
+    catch (error) {
+
+        console.error(
+            "Native authentication code error:",
+            error
+        );
+
+        return {
+
+            success: false,
+
+            step: "code",
+
+            message:
+                error?.message ??
+                "Unable to verify the code."
+
+        };
+
+    }
+
+};
+
+
+// ============================================================
+// GET CURRENT USER
+// ============================================================
+
+export const getCurrentUser = async () => {
+
+    try {
+
+        const authClient =
+            await getNativeAuthClient();
+
+
+        const account =
+            authClient.getCurrentAccount();
+
+
+        console.log(
+            "Current account:",
+            account
+        );
+
+
+        return {
+
+            authenticated:
+                !!account,
+
+            data:
+                account ?? null
+
+        };
+
+    }
+    catch (error) {
+
+        console.error(
+            "Get current user error:",
+            error
+        );
+
+        return {
+
+            authenticated: false,
+
+            data: null
+
+        };
+
+    }
+
+};
+
+
+// ============================================================
+// CLEAR AUTHENTICATION FLOW
+// ============================================================
 
 export const clearSignInState = () => {
 
@@ -2081,13 +1580,12 @@ export const clearSignInState = () => {
 };
 
 
-//----------------------------------------------------
-// Get Current Authentication State
-//----------------------------------------------------
+// ============================================================
+// GET CURRENT AUTHENTICATION STATE
+// ============================================================
 
 export const getCurrentSignInState = () => {
 
     return signInState;
 
 };
-

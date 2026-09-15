@@ -1,6 +1,7 @@
 export const msalConfig = {
     auth: {
-        clientId: "aa13de8e-a0f3-4501-a6d0-27f790f7929f",
+        clientId:
+            "aa13de8e-a0f3-4501-a6d0-27f790f7929f",
 
         authority:
             "https://devsandboxciam.ciamlogin.com/0f0fd0ef-f80f-4b88-bc6a-bc62cdb0bfdb",
@@ -9,7 +10,15 @@ export const msalConfig = {
             "devsandboxciam.ciamlogin.com"
         ],
 
-        redirectUri: "http://localhost:3000"
+        redirectUri:
+            "http://localhost:3000/redirect.html",
+
+        postLogoutRedirectUri:
+            "http://localhost:3000/"
+    },
+
+    cache: {
+        cacheLocation: "sessionStorage"
     }
 };
 

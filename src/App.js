@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 
 import {
@@ -11,10 +12,13 @@ import { useMsal } from "@azure/msal-react";
 import { jwtDecode } from "jwt-decode";
 import { loginRequest } from "./auth/msalConfig";
 import CustomLoginPage from "./pages/CustomLoginPage";
+
 import {
     getPublicData,
     getSecureData,
-    getMe
+    getMe,
+    getMfaStatus,
+    verifyMfa
 } from "./apiService";
 
 import NativeLoginTestPage from "./pages/NativeLoginTestPage";
@@ -28,101 +32,399 @@ function MsalDemoPage() {
     const [secureResult, setSecureResult] = useState("");
     const [userInfo, setUserInfo] = useState(null);
     const [token, setToken] = useState("");
+    const [mfaRequired, setMfaRequired] = useState(false);
+    const [mfaCode, setMfaCode] = useState("");
+    const [mfaVerified, setMfaVerified] = useState(false);
+    const [mfaMessage, setMfaMessage] = useState("");
+
+    console.log(
+        "RENDER:",
+        {
+            mfaRequired,
+            mfaVerified,
+            mfaCode,
+            mfaMessage
+        }
+    );
+
+    // ============================================================
+    // LOGIN
+    // ============================================================
+
+    const login = () =>
+        instance.loginRedirect({
+            ...loginRequest,
+            prompt: "login"
+        });
 
 
-    const login = () => {
-        instance.loginRedirect(loginRequest);
-    };
-
+    // ============================================================
+    // LOGOUT
+    // ============================================================
 
     const logout = () => {
         instance.logoutRedirect();
     };
 
 
+    // ============================================================
+    // GET ACCESS TOKEN + DIAGNOSTIC CLAIMS
+    // ============================================================
+
     const getAccessToken = async () => {
 
-        const account = accounts[0];
+        const account =
+            instance.getActiveAccount() ||
+            accounts[0];
 
-        const result = await instance.acquireTokenSilent({
-            ...loginRequest,
-            account
-        });
+        if (!account) {
 
-        console.log("Access Token:");
-        console.log(result.accessToken);
+            console.error(
+                "No active MSAL account found."
+            );
 
-        console.log("Decoded Claims:");
-        console.log(result.idTokenClaims);
+            throw new Error(
+                "No active account found. Please log in again."
+            );
+        }
 
-        setToken(result.accessToken);
 
-        const accessToken = result.accessToken;
+        console.log(
+            "========== ACCOUNT =========="
+        );
 
-        const decoded = jwtDecode(accessToken);
+        console.log(account);
 
-        console.log("Decoded Token:");
-        console.log(decoded);
 
-        console.log("Audience:", decoded.aud);
-        console.log("Issuer:", decoded.iss);
-        console.log("Tenant:", decoded.tid);
-        console.log("Scope:", decoded.scp);
-        console.log("Subject:", decoded.sub);
-        console.log("OID:", decoded.oid);
+        // ========================================================
+        // ID TOKEN CLAIMS
+        // ========================================================
+
+        console.log(
+            "========== ID TOKEN CLAIMS =========="
+        );
+
+        console.log(
+            account.idTokenClaims
+        );
+
+
+        // ========================================================
+        // AMR - AUTHENTICATION METHODS REFERENCES
+        // ========================================================
+
+        console.log(
+            "========== AMR =========="
+        );
+
+        console.log(
+            "AMR VALUE:",
+            JSON.stringify(
+                account.idTokenClaims?.amr
+            )
+        );
+
+
+        // ========================================================
+        // ACQUIRE ACCESS TOKEN
+        // ========================================================
+
+        const result =
+            await instance.acquireTokenSilent({
+                ...loginRequest,
+                account
+            });
+
+
+        // Do NOT print the complete access token.
+        // It is a bearer credential.
+
+        setToken(
+            result.accessToken
+        );
+
+
+        // ========================================================
+        // DECODE ACCESS TOKEN
+        // ========================================================
+
+        const decoded =
+            jwtDecode(result.accessToken);
+
+
+        console.log(
+            "========== ACCESS TOKEN CLAIMS =========="
+        );
+
+        console.log(
+            "Audience:",
+            decoded.aud
+        );
+
+        console.log(
+            "Issuer:",
+            decoded.iss
+        );
+
+        console.log(
+            "Tenant:",
+            decoded.tid
+        );
+
+        console.log(
+            "Scope:",
+            decoded.scp
+        );
+
+        console.log(
+            "Subject:",
+            decoded.sub
+        );
+
+        console.log(
+            "OID:",
+            decoded.oid
+        );
+
+
+        // ========================================================
+        // ACCESS TOKEN AMR - IF PRESENT
+        // ========================================================
+
+        console.log(
+            "Access Token AMR:",
+            JSON.stringify(
+                decoded.amr
+            )
+        );
+
 
         return result.accessToken;
     };
 
 
+    // ============================================================
+    // PUBLIC API
+    // ============================================================
+
     const callPublicApi = async () => {
 
-        const data = await getPublicData();
+        const data =
+            await getPublicData();
 
         setPublicResult(
-            JSON.stringify(data, null, 2)
+            JSON.stringify(
+                data,
+                null,
+                2
+            )
         );
     };
 
+
+    // ============================================================
+    // SECURE API
+    // ============================================================
 
     const callSecureApi = async () => {
 
-        const token = await getAccessToken();
+        try {
 
-        const data = await getSecureData(token);
+            const token =
+                await getAccessToken();
 
-        setSecureResult(
-            JSON.stringify(data, null, 2)
-        );
+            // ====================================================
+            // CHECK APPLICATION MFA STATUS
+            // ====================================================
+
+            const mfaStatus =
+                await getMfaStatus(token);
+
+            console.log(
+                "MFA STATUS:",
+                mfaStatus
+            );
+
+            // ====================================================
+            // MFA IS REQUIRED BUT NOT YET VERIFIED
+            // ====================================================
+
+            if (
+                mfaStatus.enrolled &&
+                mfaStatus.enabled &&
+                !mfaVerified
+            ) {
+
+                console.log(
+                    "========== MFA REQUIRED =========="
+                );
+
+                console.log(
+                    "mfaStatus.enrolled:",
+                    mfaStatus.enrolled
+                );
+
+                console.log(
+                    "mfaStatus.enabled:",
+                    mfaStatus.enabled
+                );
+
+                console.log(
+                    "mfaVerified:",
+                    mfaVerified
+                );
+
+                setMfaRequired(true);
+
+                setMfaMessage(
+                    "Enter the 6-digit code from Microsoft Authenticator."
+                );
+
+                return;
+            }
+
+            // ====================================================
+            // MFA COMPLETE - CALL SECURE API
+            // ====================================================
+
+            const data =
+                await getSecureData(token);
+
+            setSecureResult(
+                JSON.stringify(
+                    data,
+                    null,
+                    2
+                )
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Secure API error:",
+                error
+            );
+
+            setSecureResult(
+                `Request failed: ${
+                    error.response?.status ||
+                    error.message
+                }`
+            );
+        }
     };
+    
+    const handleMfaVerify = async () => {
 
+        try {
+
+            const token =
+                await getAccessToken();
+
+            setMfaMessage(
+                "Verifying MFA..."
+            );
+
+            const result =
+                await verifyMfa(
+                    token,
+                    mfaCode
+                );
+
+            console.log(
+                "MFA VERIFY RESULT:",
+                result
+            );
+
+            setMfaVerified(true);
+            setMfaRequired(false);
+            setMfaCode("");
+
+            setMfaMessage(
+                "MFA verification successful."
+            );
+
+            // ====================================================
+            // NOW CALL THE SECURE API
+            // ====================================================
+
+            const data =
+                await getSecureData(token);
+
+            setSecureResult(
+                JSON.stringify(
+                    data,
+                    null,
+                    2
+                )
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "MFA verification error:",
+                error
+            );
+
+            setMfaMessage(
+                error.response?.data ||
+                "MFA verification failed."
+            );
+
+            setMfaVerified(false);
+        }
+    };
+    // ============================================================
+    // MY CLAIMS API
+    // ============================================================
 
     const callMeApi = async () => {
 
-        const token = await getAccessToken();
+        const token =
+            await getAccessToken();
 
-        const data = await getMe(token);
+        const data =
+            await getMe(token);
 
         setUserInfo(data);
     };
 
 
+    // ============================================================
+    // UI
+    // ============================================================
+
     return (
-        <div style={{ padding: "20px" }}>
+
+        <div
+            style={{
+                padding: "20px"
+            }}
+        >
 
             <h1>
                 Microsoft Entra External ID Demo
             </h1>
 
-            <div style={{ marginBottom: "20px" }}>
+
+            <div
+                style={{
+                    marginBottom: "20px"
+                }}
+            >
 
                 <Link to="/native-login-test">
+
                     <button>
                         Native Authentication Test
                     </button>
+
                 </Link>
 
             </div>
+
 
             {accounts.length === 0 ? (
 
@@ -140,11 +442,14 @@ function MsalDemoPage() {
                         {accounts[0].username}
                     </h3>
 
+
                     <button onClick={logout}>
                         Logout
                     </button>
 
+
                     <hr />
+
 
                     <button
                         onClick={callPublicApi}
@@ -152,11 +457,68 @@ function MsalDemoPage() {
                         Call Public API
                     </button>
 
+
                     <button
                         onClick={callSecureApi}
                     >
                         Call Secure API
                     </button>
+                    <div
+                        style={{
+                            marginTop: "20px",
+                            padding: "10px",
+                            background: "#eee"
+                        }}
+                    >
+                        MFA DEBUG: {mfaRequired ? "REQUIRED" : "NOT REQUIRED"}
+                    </div>
+
+                    {mfaRequired && (
+
+                        <div
+                            style={{
+                                marginTop: "20px",
+                                padding: "15px",
+                                border: "1px solid #ccc",
+                                maxWidth: "500px"
+                            }}
+                        >
+
+                            <h3>
+                                Multi-Factor Authentication
+                            </h3>
+
+                            <p>
+                                {mfaMessage}
+                            </p>
+
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={6}
+                                placeholder="Enter 6-digit code"
+                                value={mfaCode}
+                                onChange={(e) =>
+                                    setMfaCode(
+                                        e.target.value
+                                            .replace(/\D/g, "")
+                                    )
+                                }
+                            />
+
+                            <button
+                                onClick={handleMfaVerify}
+                                disabled={mfaCode.length !== 6}
+                                style={{
+                                    marginLeft: "10px"
+                                }}
+                            >
+                                Verify MFA
+                            </button>
+
+                        </div>
+
+                    )}
 
                     <button
                         onClick={callMeApi}
@@ -164,7 +526,9 @@ function MsalDemoPage() {
                         Get My Claims
                     </button>
 
+
                     <hr />
+
 
                     <h3>
                         Public API Result
@@ -174,6 +538,7 @@ function MsalDemoPage() {
                         {publicResult}
                     </pre>
 
+
                     <h3>
                         Secure API Result
                     </h3>
@@ -181,6 +546,7 @@ function MsalDemoPage() {
                     <pre>
                         {secureResult}
                     </pre>
+
 
                     <h3>
                         User Claims
@@ -196,6 +562,7 @@ function MsalDemoPage() {
                         }
                     </pre>
 
+
                     <h3>
                         Access Token
                     </h3>
@@ -210,11 +577,15 @@ function MsalDemoPage() {
                 </>
 
             )}
-            
+
         </div>
     );
 }
 
+
+// ================================================================
+// APP
+// ================================================================
 
 function App() {
 
@@ -233,14 +604,15 @@ function App() {
                     path="/native-login-test"
                     element={<NativeLoginTestPage />}
                 />
-               <Route
+
+                <Route
                     path="/login"
                     element={<CustomLoginPage />}
                 />
+
             </Routes>
 
         </BrowserRouter>
-
     );
 }
 
