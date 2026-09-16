@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 import {
     BrowserRouter,
@@ -33,7 +33,12 @@ import {
 } from "./auth/nativeAuthService";
 
 import NativeLoginTestPage from "./pages/NativeLoginTestPage";
+import {
+    getMfaConfiguration
+} from "./services/mfaConfigurationService";
 
+import UnifiedMfaChallenge
+    from "./components/UnifiedMfaChallenge";
 
 function MsalDemoPage() {
 
@@ -46,6 +51,7 @@ function MsalDemoPage() {
     const [mfaRequired, setMfaRequired] = useState(false);
     const [mfaVerified, setMfaVerified] = useState(false);
     const [mfaMessage, setMfaMessage] = useState("");
+    const [mfaMode, setMfaMode] =  useState("Existing");
 
     console.log(
         "RENDER:",
@@ -55,7 +61,6 @@ function MsalDemoPage() {
             mfaMessage
         }
     );
-
     // ============================================================
     // LOGIN
     // ============================================================
@@ -230,6 +235,42 @@ function MsalDemoPage() {
         );
     };
 
+    const loadMfaConfiguration = async () => {
+    try {
+        const configuration =
+            await getMfaConfiguration();
+
+        console.log(
+            "========== MFA CONFIGURATION =========="
+        );
+
+        console.log(
+            "Configuration:",
+            configuration
+        );
+
+        console.log(
+            "Mode:",
+            configuration?.mode
+        );
+
+        setMfaMode(
+            configuration?.mode || "Existing"
+        );
+    }
+    catch (error) {
+        console.error(
+            "Unable to load MFA configuration:",
+            error
+        );
+
+        setMfaMode("Existing");
+    }
+};
+
+useEffect(() => {
+    loadMfaConfiguration();
+}, []);
 
     // ============================================================
     // SECURE API
@@ -323,7 +364,44 @@ function MsalDemoPage() {
             );
         }
     };
-    
+    const handleUnifiedMfaMethod = async (method) => {
+
+        console.log(
+            "========== UNIFIED MFA METHOD =========="
+        );
+
+        console.log(
+            "Selected method:",
+            method
+        );
+
+        if (method === "totp") {
+
+            setMfaMessage(
+                "Enter the 6-digit code from Microsoft Authenticator."
+            );
+
+            return;
+        }
+
+        if (method === "email") {
+
+            setMfaMessage(
+                "Email verification will be implemented next."
+            );
+
+            return;
+        }
+
+        if (method === "sms") {
+
+            setMfaMessage(
+                "SMS verification will be implemented next."
+            );
+
+            return;
+        }
+    };
     const handleNativeMfaMethod = async (methodId) => {
     try {
         setMfaMessage("Sending verification code...");
@@ -508,30 +586,48 @@ function MsalDemoPage() {
                     >
                     </div>
                     {mfaRequired && (
-                        <MfaChallenge
-                            methods={{
-                                totp: true,
-                                email: true,
-                                sms: true
-                            }}
-                            defaultMethod="totp"
-                            message={mfaMessage}
-                            onVerifyTotp={handleMfaVerify}
-                            onSelectEmail={() => {
-                                console.log(
-                                    "Email MFA selected"
-                                );
-                            }}
-                            onSelectSms={() => {
-                                console.log(
-                                    "SMS MFA selected"
-                                );
-                            }}
-                            onCancel={() => {
-                                setMfaRequired(false);
-                                setMfaMessage("");
-                            }}
-                        />
+                        mfaMode === "Unified" ? (
+
+                            <UnifiedMfaChallenge
+                                totpEnabled={true}
+                                emailEnabled={true}
+                                smsEnabled={true}
+                                onSelectMethod={handleUnifiedMfaMethod}
+                                onVerify={handleMfaVerify}
+                                onCancel={() => {
+                                    setMfaRequired(false);
+                                    setMfaMessage("");
+                                }}
+                            />
+
+                        ) : (
+
+                            <MfaChallenge
+                                methods={{
+                                    totp: true,
+                                    email: true,
+                                    sms: true
+                                }}
+                                defaultMethod="totp"
+                                message={mfaMessage}
+                                onVerifyTotp={handleMfaVerify}
+                                onSelectEmail={() => {
+                                    console.log(
+                                        "Email MFA selected"
+                                    );
+                                }}
+                                onSelectSms={() => {
+                                    console.log(
+                                        "SMS MFA selected"
+                                    );
+                                }}
+                                onCancel={() => {
+                                    setMfaRequired(false);
+                                    setMfaMessage("");
+                                }}
+                            />
+
+                        )
                     )}
 
                     <button
@@ -576,7 +672,15 @@ function MsalDemoPage() {
                         }
                     </pre>
 
-
+                    <div
+                        style={{
+                            marginTop: "20px",
+                            padding: "10px",
+                            background: "#f5f5f5"
+                        }}
+                    >
+                        MFA Mode: {mfaMode}
+                    </div>
                     <h3>
                         Access Token
                     </h3>
