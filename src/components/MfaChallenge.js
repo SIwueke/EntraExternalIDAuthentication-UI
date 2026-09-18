@@ -84,7 +84,7 @@ const MfaChallenge = ({
             return "Email";
         }
 
-        return "Verification method";
+        return "Microsoft Authenticator";
     };
 
 
@@ -255,9 +255,9 @@ const MfaChallenge = ({
             </h2>
 
 
-            <p>
+            {/* <p>
                 Choose how you want to verify your identity.
-            </p>
+            </p> */}
 
 
             {/* =====================================================

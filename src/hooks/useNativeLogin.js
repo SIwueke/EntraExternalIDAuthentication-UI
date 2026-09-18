@@ -1,8 +1,4 @@
-import {
-    useEffect,
-    useState
-} from "react";
-
+import {useEffect, useRef, useState} from "react";
 import {
     startSignIn,
     submitPassword,
@@ -10,6 +6,7 @@ import {
     clearSignInState,
     submitMfaChallenge,
     requestMfaChallenge,
+    getNativeAccessToken,
     getCurrentUser
 } from "../auth/nativeAuthService";
 
@@ -24,34 +21,45 @@ import {
 const useNativeLogin = () => {
 
     // ============================================================
+    // APPLICATION MFA IDENTIFIERS
+    // ============================================================
+
+    const APPLICATION_AUTHENTICATOR_ID =   "application-authenticator";
+
+
+    // ============================================================
     // AUTHENTICATION STATE
     // ============================================================
 
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [code, setCode] = useState("");
+
+
+    // ============================================================
+    // NATIVE MFA STATE
+    // ============================================================
+
     const [mfaMethods, setMfaMethods] = useState([]);
-    const [selectedMfaMethod, setSelectedMfaMethod] =  useState("");
-    const [activeMfaMethod, setActiveMfaMethod] = useState(null);
+
+    const [selectedMfaMethod, setSelectedMfaMethod] =    useState("");
+
+    const [activeMfaMethod, setActiveMfaMethod] =  useState(null);
+
+
     // ============================================================
     // MFA REGISTRATION STATE
     // ============================================================
 
-    const [registrationMethods, setRegistrationMethods] =
-        useState([]);
+    const [registrationMethods, setRegistrationMethods] =  useState([]);
 
-    const [selectedRegistrationMethod, setSelectedRegistrationMethod] =
-        useState("");
+    const [selectedRegistrationMethod, setSelectedRegistrationMethod] =  useState("");
 
-    const [registrationContact, setRegistrationContact] =
-        useState("");
+    const [registrationContact, setRegistrationContact] =  useState("");
 
-    const [registrationCode, setRegistrationCode] =
-        useState("");
+    const [registrationCode, setRegistrationCode] = useState("");
 
-    const [registrationState, setRegistrationState] =
-        useState(null);
-    
+    const [registrationState, setRegistrationState] =  useState(null);
 
 
     // ============================================================
@@ -59,13 +67,18 @@ const useNativeLogin = () => {
     // ============================================================
 
     const [step, setStep] = useState("email");
+
     const [loading, setLoading] = useState(false);
+
     const [error, setError] = useState("");
+
     const [success, setSuccess] = useState("");
-    const [showPassword, setShowPassword] = useState(false);
-    const [remember, setRemember] = useState(false);
 
+    const [showPassword, setShowPassword] =   useState(false);
 
+    const [remember, setRemember] =     useState(false);
+
+  const nativeAuthenticationResultRef =  useRef(null);
     // ============================================================
     // ERROR HELPER
     // ============================================================
@@ -83,6 +96,7 @@ const useNativeLogin = () => {
         return (
             errorValue.message ??
             errorValue.errorDescription ??
+            errorValue.error_description ??
             "Unable to sign in."
         );
     };
@@ -98,6 +112,34 @@ const useNativeLogin = () => {
         setSuccess("");
 
     };
+
+
+    // ============================================================
+    // LOAD REMEMBER-ME SETTING
+    // ============================================================
+
+    useEffect(() => {
+
+        try {
+
+            const remembered =
+                localStorage.getItem("rememberLogin");
+
+            setRemember(
+                remembered === "true"
+            );
+
+        }
+        catch (err) {
+
+            console.error(
+                "Unable to load remember-login setting:",
+                err
+            );
+
+        }
+
+    }, []);
 
 
     // ============================================================
@@ -209,48 +251,46 @@ const useNativeLogin = () => {
     // HANDLE AUTHENTICATION COMPLETED
     // ============================================================
 
-    const handleAuthenticationCompleted = (result) => {
+    const handleAuthenticationCompleted =  async (authenticationResult) => {
 
         console.log(
-            "Authentication completed:",
-            result
+            "========== AUTHENTICATION COMPLETED =========="
         );
-
-
-        setSuccess(
-            "Sign in successful."
-        );
-
-
-        // --------------------------------------------------------
-        // Remember-me
-        // --------------------------------------------------------
-
-        if (remember) {
-
-            localStorage.setItem(
-                "rememberLogin",
-                "true"
-            );
-
-        }
-        else {
-
-            localStorage.removeItem(
-                "rememberLogin"
-            );
-
-        }
-
-
-        // --------------------------------------------------------
-        // Redirect intentionally disabled.
-        // --------------------------------------------------------
 
         console.log(
-            "AUTHENTICATION COMPLETED - NOT REDIRECTING YET"
+            "Authentication result:",
+            authenticationResult
         );
 
+        console.log(
+            "Authentication result constructor:",
+            authenticationResult?.constructor?.name
+        );
+
+        if (!authenticationResult) {
+            console.error(
+                "No authentication result was supplied."
+            );
+
+            setError(
+                "Authentication completed, but no authentication result was returned."
+            );
+
+            return;
+        }
+
+        nativeAuthenticationResultRef.current =      authenticationResult;
+
+        console.log(
+            "Native authentication result stored."
+        );
+
+        console.log(
+            "Stored authentication result:",
+            nativeAuthenticationResultRef.current
+        );
+
+        setSuccess(true);
     };
 
 
@@ -263,14 +303,29 @@ const useNativeLogin = () => {
         event.preventDefault();
 
         clearMessages();
+
         setLoading(true);
 
 
         try {
 
+            const enteredUsername =
+                username.trim();
+
+
+            if (!enteredUsername) {
+
+                setError(
+                    "Please enter your email address."
+                );
+
+                return;
+            }
+
+
             const result =
                 await startSignIn(
-                    username.trim()
+                    enteredUsername
                 );
 
 
@@ -293,25 +348,60 @@ const useNativeLogin = () => {
 
             switch (result.step) {
 
+                // ------------------------------------------------
+                // Password
+                // ------------------------------------------------
+
                 case "password":
 
                     setStep("password");
+
                     break;
 
+
+                // ------------------------------------------------
+                // Existing verification code
+                // ------------------------------------------------
 
                 case "code":
 
                     setCode("");
+
                     setStep("code");
+
                     break;
 
 
-                case "mfa":
+                // ------------------------------------------------
+                // MFA method selection
+                // ------------------------------------------------
+
+                case "mfa": {
+
+                    const methods =
+                        buildCustomMfaMethods(
+                            result.authMethods
+                        );
+
+                    setMfaMethods(
+                        methods
+                    );
+
+                    setSelectedMfaMethod("");
+
+                    setActiveMfaMethod(null);
 
                     setCode("");
-                    setStep("mfa");
-                    break;
 
+                    setStep("mfa");
+
+                    break;
+                }
+
+
+                // ------------------------------------------------
+                // Authentication method registration
+                // ------------------------------------------------
 
                 case "authMethodRegistration":
 
@@ -320,8 +410,13 @@ const useNativeLogin = () => {
                     );
 
                     setStep("registration");
+
                     break;
 
+
+                // ------------------------------------------------
+                // Completed
+                // ------------------------------------------------
 
                 case "completed":
 
@@ -331,6 +426,10 @@ const useNativeLogin = () => {
 
                     break;
 
+
+                // ------------------------------------------------
+                // Unexpected
+                // ------------------------------------------------
 
                 default:
 
@@ -367,6 +466,129 @@ const useNativeLogin = () => {
 
 
     // ============================================================
+    // BUILD CUSTOM MFA METHODS
+    // ============================================================
+
+    const buildCustomMfaMethods = (entraMethods) => {
+
+        const methods =
+            Array.isArray(entraMethods)
+                ? entraMethods
+                : [];
+
+
+        console.log(
+            "========== BUILDING CUSTOM MFA METHODS =========="
+        );
+
+        console.log(
+            "Entra MFA methods:",
+            methods
+        );
+
+
+        // --------------------------------------------------------
+        // Find Entra SMS
+        // --------------------------------------------------------
+
+        const smsMethod =
+            methods.find(
+                (method) =>
+                    method?.challenge_channel === "sms"
+            );
+
+
+        // --------------------------------------------------------
+        // Find Entra Email
+        // --------------------------------------------------------
+
+        const emailMethod =
+            methods.find(
+                (method) =>
+                    method?.challenge_channel === "email"
+            );
+
+
+        // --------------------------------------------------------
+        // Application Microsoft Authenticator
+        // --------------------------------------------------------
+
+        const authenticatorMethod = {
+
+            id:
+                APPLICATION_AUTHENTICATOR_ID,
+
+            challenge_type:
+                "totp",
+
+            challenge_channel:
+                "authenticator",
+
+            login_hint:
+                ""
+        };
+
+
+        // --------------------------------------------------------
+        // Build the three options
+        // --------------------------------------------------------
+
+        const customMethods = [
+            authenticatorMethod
+        ];
+
+
+        if (smsMethod) {
+
+            customMethods.push(
+                smsMethod
+            );
+
+        }
+
+
+        if (emailMethod) {
+
+            customMethods.push(
+                emailMethod
+            );
+
+        }
+
+
+        console.log(
+            "========== CUSTOM MFA METHODS =========="
+        );
+
+        customMethods.forEach(
+            (method, index) => {
+
+                console.log(
+                    `Custom MFA method ${index + 1}:`,
+                    {
+                        id:
+                            method?.id,
+
+                        challenge_type:
+                            method?.challenge_type,
+
+                        challenge_channel:
+                            method?.challenge_channel,
+
+                        login_hint:
+                            method?.login_hint
+                    }
+                );
+
+            }
+        );
+
+
+        return customMethods;
+    };
+
+
+    // ============================================================
     // PASSWORD SUBMISSION
     // ============================================================
 
@@ -375,6 +597,7 @@ const useNativeLogin = () => {
         event.preventDefault();
 
         clearMessages();
+
         setLoading(true);
 
 
@@ -387,12 +610,43 @@ const useNativeLogin = () => {
 
 
             console.log(
+                "========== SUBMIT PASSWORD =========="
+            );
+
+            console.log(
                 "submitPassword result:",
                 result
             );
 
+            console.log(
+                "Result step:",
+                result?.step
+            );
+
+            console.log(
+                "Result authMethods:",
+                result?.authMethods
+            );
+
 
             if (!result?.success) {
+
+                // ------------------------------------------------
+                // Password expired
+                // ------------------------------------------------
+
+                if (
+                    result?.step ===
+                    "passwordExpired"
+                ) {
+
+                    setStep(
+                        "passwordReset"
+                    );
+
+                    return;
+                }
+
 
                 setError(
                     result?.message ||
@@ -406,64 +660,50 @@ const useNativeLogin = () => {
             switch (result.step) {
 
                 // ------------------------------------------------
-                // MFA
+                // MFA method selection
                 // ------------------------------------------------
 
                 case "mfa": {
-                    const methods = result.authMethods ?? [];
 
-                    if (!methods.length) {
-                        setError("No MFA authentication method is available.");
+                    const methods =
+                        buildCustomMfaMethods(
+                            result.authMethods
+                        );
+
+
+                    if (methods.length === 0) {
+
+                        setError(
+                            "No MFA authentication methods are available for this account."
+                        );
+
                         return;
                     }
 
-                    console.log(
-                        "========== MFA METHODS RECEIVED =========="
+
+                    setMfaMethods(
+                        methods
                     );
 
-                    console.log(
-                        "Number of MFA methods:",
-                        methods.length
+                    setSelectedMfaMethod(
+                        ""
                     );
 
-                    methods.forEach((method, index) => {
-                        console.log(
-                            `MFA method ${index + 1}:`,
-                            JSON.stringify(method, null, 2)
-                        );
-
-                        console.log(
-                            `MFA method ${index + 1} ID:`,
-                            method?.id
-                        );
-
-                        console.log(
-                            `MFA method ${index + 1} challenge type:`,
-                            method?.challenge_type
-                        );
-
-                        console.log(
-                            `MFA method ${index + 1} challenge channel:`,
-                            method?.challenge_channel
-                        );
-
-                        console.log(
-                            `MFA method ${index + 1} login hint:`,
-                            method?.login_hint
-                        );
-                    });
-
-                    console.log(
-                        "=========================================="
+                    setActiveMfaMethod(
+                        null
                     );
 
-                    setMfaMethods(methods);
-                    setSelectedMfaMethod("");
-                    setCode("");
-                    setStep("mfa");
+                    setCode(
+                        ""
+                    );
+
+                    setStep(
+                        "mfa"
+                    );
 
                     break;
                 }
+
 
                 // ------------------------------------------------
                 // Existing verification code
@@ -472,18 +712,26 @@ const useNativeLogin = () => {
                 case "code":
 
                     setCode("");
+
                     setStep("code");
+
                     break;
+
+
                 // ------------------------------------------------
                 // MFA registration
                 // ------------------------------------------------
+
                 case "authMethodRegistration":
 
                     configureRegistrationState(
                         result.state
                     );
 
-                    setStep("registration");
+                    setStep(
+                        "registration"
+                    );
+
                     break;
 
 
@@ -506,7 +754,10 @@ const useNativeLogin = () => {
 
                 case "passwordExpired":
 
-                    setStep("passwordReset");
+                    setStep(
+                        "passwordReset"
+                    );
+
                     break;
 
 
@@ -547,118 +798,613 @@ const useNativeLogin = () => {
 
     };
 
-   // ============================================================
-// MFA METHOD SELECTION
-// ============================================================
 
-const handleMfaMethodSubmit = async () => {
+    // ============================================================
+    // NATIVE MFA METHOD SELECTION
+    // ============================================================
+
+    const handleMfaMethodSubmit = async () => {
+
         clearMessages();
+
         setLoading(true);
+
+
         try {
+
+            // ----------------------------------------------------
+            // Make sure a method was selected
+            // ----------------------------------------------------
+
             if (!selectedMfaMethod) {
+
                 setError(
                     "Please select an MFA authentication method."
                 );
+
                 return;
             }
-            console.log("Selected MFA method:",
+
+
+            console.log(
+                "Selected MFA method ID:",
                 selectedMfaMethod
             );
-            const selectedMethod = mfaMethods.find(
-                (method) => method?.id === selectedMfaMethod
-            );
-
-            console.log("Selected MFA method details:",
-                selectedMethod
-            );
-            setActiveMfaMethod(selectedMethod);
-            const challengeResult =
-                await requestMfaChallenge(
-                    selectedMfaMethod
-                );
-            console.log("MFA challenge result:", challengeResult);
-            if (!challengeResult?.success) {
-                setError(
-                    challengeResult?.message ||
-                    "Unable to request MFA challenge."
-                );
-                return;
-            }
-            if (
-                challengeResult.step ===
-                "mfaCode"
-            ) {
-                setCode("");
-                setStep("mfaCode");
-                return;
-            }
-            if (
-                challengeResult.step ===
-                "completed"
-            ) {
-                handleAuthenticationCompleted(
-                    challengeResult
-                );
-                return;
-            }
-            if (challengeResult.step === "mfa") 
-            {
-                setStep("mfa");
-                return;
-            }
-            setError(
-                challengeResult.message ||
-                "Unexpected MFA response."
-            );
-        }
-        catch (err) {
-            console.error(
-                "MFA method selection error:",
-                err
-            );
-            setError(
-                getErrorMessage(err) ||
-                "Unable to start MFA verification."
-            );
-        }
-        finally {
-            setLoading(false);
-        }
-
-    };
-
-    const handleMfaSubmit = async (event) => {
-
-        if (event?.preventDefault) {
-            event.preventDefault();
-        }
-
-        clearMessages();
-        setLoading(true);
 
 
-        try {
+            // ----------------------------------------------------
+            // Find selected method
+            // ----------------------------------------------------
 
-            const result =
-                await submitMfaChallenge(
-                    code
+            const selectedMethod =
+                mfaMethods.find(
+                    (method) =>
+                        String(method?.id) ===
+                        String(selectedMfaMethod)
                 );
 
 
             console.log(
-                "submitMfaChallenge result:",
+                "Selected MFA method details:",
+                selectedMethod
+            );
+
+
+            if (!selectedMethod) {
+
+                setError(
+                    "The selected MFA authentication method could not be found."
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // APPLICATION AUTHENTICATOR
+            // ----------------------------------------------------
+
+            if (selectedMethod.id ===  APPLICATION_AUTHENTICATOR_ID) {
+
+               console.log(
+                    "========== AUTHENTICATOR SELECTION =========="
+                );
+
+                console.log(
+                    "Current native authentication result:",
+                    nativeAuthenticationResultRef.current
+                );
+
+                console.log(
+                    "Selected MFA method:",
+                    selectedMethod
+                );
+
+                setActiveMfaMethod(selectedMethod);
+
+                setCode("");
+
+                setStep(
+                    "mfaCode"
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Existing Entra SMS / Email
+            // ----------------------------------------------------
+
+            setActiveMfaMethod(
+                selectedMethod
+            );
+
+
+            console.log(
+                "========== REQUESTING ENTRA MFA CHALLENGE =========="
+            );
+
+            console.log(
+                "Challenge method:",
+                selectedMethod
+            );
+
+
+            const challengeResult =
+                await requestMfaChallenge(
+                    selectedMethod.id
+                );
+
+
+            console.log(
+                "MFA challenge result:",
+                challengeResult
+            );
+
+
+            if (!challengeResult?.success) {
+
+                setError(
+                    challengeResult?.message ||
+                    "Unable to request MFA challenge."
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Challenge requires code
+            // ----------------------------------------------------
+
+            if (
+                challengeResult.step ===
+                "mfaCode"
+            ) {
+
+                setCode("");
+
+                setStep(
+                    "mfaCode"
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Authentication completed
+            // ----------------------------------------------------
+
+            if (
+                challengeResult.step ===
+                "completed"
+            ) {
+
+                handleAuthenticationCompleted(
+                    challengeResult
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Still waiting for MFA
+            // ----------------------------------------------------
+
+            if (
+                challengeResult.step ===
+                "mfa"
+            ) {
+
+                setStep(
+                    "mfa"
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Unexpected result
+            // ----------------------------------------------------
+
+            setError(
+                challengeResult?.message ||
+                "Unexpected MFA challenge response."
+            );
+
+        }
+        catch (err) {
+
+            console.error(
+                "MFA method selection error:",
+                err
+            );
+
+            setError(
+                getErrorMessage(err) ||
+                "Unable to start MFA verification."
+            );
+
+        }
+        finally {
+
+            setLoading(false);
+
+        }
+
+    };
+
+        // ============================================================
+    // APPLICATION MFA / MICROSOFT AUTHENTICATOR
+    // ============================================================
+
+    const verifyApplicationAuthenticator =    async (enteredCode) => {
+
+        console.log(
+            "========== VERIFYING APPLICATION AUTHENTICATOR =========="
+        );
+
+        try {
+
+            const authenticationResult = nativeAuthenticationResultRef.current;
+
+            if (!authenticationResult) {
+
+                throw new Error(
+                    "No completed native authentication result is available."
+                );
+
+            }
+
+            console.log(
+                "Using stored native authentication result."
+            );
+
+            console.log(
+                "Authentication result constructor:",
+                authenticationResult?.constructor?.name
+            );
+
+            const accessToken =  await getNativeAccessToken(authenticationResult);
+
+            if (!accessToken) {
+
+                throw new Error(
+                    "Unable to obtain the Entra access token."
+                );
+
+            }
+
+            console.log(
+                "Native access token acquired."
+            );
+
+            // The rest of your existing fetch code follows...
+            // ----------------------------------------------------
+            // Call existing application MFA endpoint
+            // ----------------------------------------------------
+
+            const response = await fetch("https://localhost:7290/api/mfa/verify",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+
+                            "Authorization":
+                                `Bearer ${accessToken}`
+                        },
+
+                        credentials: "include",
+
+                        body: JSON.stringify({
+                            code: enteredCode
+                        })
+                    }
+                );
+
+
+            console.log(
+                "Application MFA HTTP status:",
+                response.status
+            );
+
+
+            // ----------------------------------------------------
+            // Read response safely
+            // ----------------------------------------------------
+
+            let responseBody = null;
+
+            const contentType =
+                response.headers.get(
+                    "content-type"
+                );
+
+
+            if (
+                contentType &&
+                contentType.includes(
+                    "application/json"
+                )
+            ) {
+
+                responseBody =
+                    await response.json();
+
+            }
+            else {
+
+                responseBody =
+                    await response.text();
+
+            }
+
+
+            console.log(
+                "Application MFA response:",
+                responseBody
+            );
+
+
+            // ----------------------------------------------------
+            // Invalid TOTP
+            // ----------------------------------------------------
+
+            if (!response.ok) {
+
+                let message =
+                    "The Microsoft Authenticator code is invalid.";
+
+                if (
+                    typeof responseBody ===
+                    "string" &&
+                    responseBody.trim()
+                ) {
+
+                    message =
+                        responseBody;
+
+                }
+                else if (
+                    responseBody?.message
+                ) {
+
+                    message =
+                        responseBody.message;
+
+                }
+
+
+                return {
+                    success: false,
+                    message
+                };
+            }
+
+
+            // ----------------------------------------------------
+            // Successful TOTP verification
+            // ----------------------------------------------------
+
+            return {
+                success: true,
+
+                message:
+                    responseBody?.message ||
+                    "MFA verification successful."
+            };
+
+        }
+        catch (err) {
+
+            console.error(
+                "Application Authenticator verification error:",
+                err
+            );
+
+            return {
+                success: false,
+
+                message:
+                    getErrorMessage(err) ||
+                    "Unable to verify Microsoft Authenticator code."
+            };
+        }
+    };
+    
+    // ============================================================
+    // NATIVE MFA CODE SUBMISSION
+    // ============================================================
+
+    const handleMfaSubmit = async (event) => {
+
+        if (
+            event &&
+            typeof event.preventDefault === "function"
+        ) {
+
+            event.preventDefault();
+
+        }
+
+
+        clearMessages();
+
+        setLoading(true);
+
+
+        try {
+
+            const enteredCode =
+                code.trim();
+
+
+            if (!enteredCode) {
+
+                setError(
+                    "Please enter the MFA verification code."
+                );
+
+                return;
+            }
+
+
+            // ====================================================
+            // APPLICATION AUTHENTICATOR / TOTP
+            // ====================================================
+
+            if (
+                activeMfaMethod?.id ===     APPLICATION_AUTHENTICATOR_ID
+            ) {
+
+                console.log(
+                    "========== APPLICATION TOTP CODE =========="
+                );
+
+                console.log(
+                    "Submitting Microsoft Authenticator code."
+                );
+
+
+                const result =
+                    await verifyApplicationAuthenticator(
+                        enteredCode
+                    );
+
+
+                console.log(
+                    "Application Authenticator result:",
+                    result
+                );
+
+
+                if (!result?.success) {
+
+                    setError(
+                        result?.message ||
+                        "Microsoft Authenticator verification failed."
+                    );
+
+                    return;
+                }
+
+
+                // ------------------------------------------------
+                // TOTP verified
+                // ------------------------------------------------
+
+                console.log(
+                    "========== APPLICATION MFA SUCCESS =========="
+                );
+
+
+                setCode("");
+
+
+                setSuccess(
+                    result?.message ||
+                    "MFA verification successful."
+                );
+
+
+                /*
+                 * The API has now:
+                 *
+                 * 1. Validated the TOTP
+                 * 2. Updated LastUsedUtc
+                 * 3. Created an application MFA session
+                 * 4. Set the HttpOnly mfa_session cookie
+                 *
+                 * Do NOT call submitMfaChallenge() here.
+                 *
+                 * This Authenticator code belongs to the
+                 * application's TOTP service, not the native
+                 * Entra SMS/email challenge.
+                 */
+
+                await handleAuthenticationCompleted(
+                    result
+                );
+
+
+                return;
+            }
+
+
+            // ====================================================
+            // EXISTING ENTRA SMS / EMAIL
+            // ====================================================
+
+            console.log(
+                "Submitting native MFA challenge code."
+            );
+
+
+            const result =
+                await submitMfaChallenge(
+                    enteredCode
+                );
+
+
+            console.log(
+                "========== MFA SUBMIT RESULT =========="
+            );
+
+            console.log(
+                "Full MFA submit result:",
                 result
+            );
+
+            console.log(
+                "Result constructor:",
+                result?.constructor?.name
+            );
+
+            console.log(
+                "Result step:",
+                result?.step
+            );
+
+            console.log(
+                "Result success:",
+                result?.success
+            );
+
+            console.log(
+                "Result message:",
+                result?.message
+            );
+
+            console.log(
+                "Result error:",
+                result?.error
+            );
+
+            console.log(
+                "Result errorDescription:",
+                result?.errorDescription
+            );
+
+            console.log(
+                "Result errorCode:",
+                result?.errorCode
+            );
+
+            console.log(
+                "Result state:",
+                result?.state
+            );
+
+            console.log(
+                "Result state constructor:",
+                result?.state?.constructor?.name
+            );
+
+            console.log(
+                "========================================"
             );
 
 
             if (!result?.success) {
 
+                // ------------------------------------------------
+                // Password expired
+                // ------------------------------------------------
+
                 if (
-                    result.step ===
+                    result?.step ===
                     "passwordExpired"
                 ) {
 
-                    setStep("passwordReset");
+                    setStep(
+                        "passwordReset"
+                    );
 
                     return;
                 }
@@ -675,6 +1421,10 @@ const handleMfaMethodSubmit = async () => {
 
             switch (result.step) {
 
+                // ------------------------------------------------
+                // Completed
+                // ------------------------------------------------
+
                 case "completed":
 
                     handleAuthenticationCompleted(
@@ -684,23 +1434,52 @@ const handleMfaMethodSubmit = async () => {
                     break;
 
 
+                // ------------------------------------------------
+                // Another MFA method selection required
+                // ------------------------------------------------
+
                 case "mfa":
 
-                    setStep("mfa");
+                    setCode("");
+
+                    setStep(
+                        "mfa"
+                    );
+
                     break;
 
+
+                // ------------------------------------------------
+                // Another MFA code required
+                // ------------------------------------------------
 
                 case "mfaCode":
 
-                    setStep("mfa");
+                    setCode("");
+
+                    setStep(
+                        "mfaCode"
+                    );
+
                     break;
 
+
+                // ------------------------------------------------
+                // Password expired
+                // ------------------------------------------------
 
                 case "passwordExpired":
 
-                    setStep("passwordReset");
+                    setStep(
+                        "passwordReset"
+                    );
+
                     break;
 
+
+                // ------------------------------------------------
+                // Unexpected
+                // ------------------------------------------------
 
                 default:
 
@@ -730,11 +1509,8 @@ const handleMfaMethodSubmit = async () => {
         finally {
 
             setLoading(false);
-
         }
-
     };
-
 
     // ============================================================
     // MFA REGISTRATION
@@ -809,13 +1585,19 @@ const handleMfaMethodSubmit = async () => {
 
             switch (result.step) {
 
+                // ------------------------------------------------
+                // Verification required
+                // ------------------------------------------------
+
                 case "verificationRequired":
 
                     setRegistrationState(
                         result.state
                     );
 
-                    setRegistrationCode("");
+                    setRegistrationCode(
+                        ""
+                    );
 
                     setStep(
                         "registration-code"
@@ -828,6 +1610,10 @@ const handleMfaMethodSubmit = async () => {
                     break;
 
 
+                // ------------------------------------------------
+                // Completed
+                // ------------------------------------------------
+
                 case "completed":
 
                     handleAuthenticationCompleted(
@@ -836,6 +1622,10 @@ const handleMfaMethodSubmit = async () => {
 
                     break;
 
+
+                // ------------------------------------------------
+                // Unexpected
+                // ------------------------------------------------
 
                 default:
 
@@ -984,14 +1774,29 @@ const handleMfaMethodSubmit = async () => {
         event.preventDefault();
 
         clearMessages();
+
         setLoading(true);
 
 
         try {
 
+            const enteredCode =
+                code.trim();
+
+
+            if (!enteredCode) {
+
+                setError(
+                    "Please enter the verification code."
+                );
+
+                return;
+            }
+
+
             const result =
                 await submitVerificationCode(
-                    code
+                    enteredCode
                 );
 
 
@@ -1014,6 +1819,10 @@ const handleMfaMethodSubmit = async () => {
 
             switch (result.step) {
 
+                // ------------------------------------------------
+                // Completed
+                // ------------------------------------------------
+
                 case "completed":
 
                     handleAuthenticationCompleted(
@@ -1023,17 +1832,51 @@ const handleMfaMethodSubmit = async () => {
                     break;
 
 
-                case "mfa":
+                // ------------------------------------------------
+                // MFA
+                // ------------------------------------------------
 
-                    setStep("mfa");
+                case "mfa": {
+
+                    const methods =
+                        buildCustomMfaMethods(
+                            result.authMethods
+                        );
+
+                    setMfaMethods(
+                        methods
+                    );
+
+                    setSelectedMfaMethod("");
+
+                    setActiveMfaMethod(null);
+
+                    setStep(
+                        "mfa"
+                    );
+
                     break;
+                }
 
+
+                // ------------------------------------------------
+                // Another code required
+                // ------------------------------------------------
 
                 case "code":
 
-                    setStep("code");
+                    setCode("");
+
+                    setStep(
+                        "code"
+                    );
+
                     break;
 
+
+                // ------------------------------------------------
+                // Unexpected
+                // ------------------------------------------------
 
                 default:
 
@@ -1070,168 +1913,255 @@ const handleMfaMethodSubmit = async () => {
 
 
     // ============================================================
-        // ============================================================
-        // BACK BUTTON
-        // ============================================================
-
-        const handleBack = () => {
-
-            clearMessages();
-
-
-            switch (step) {
-
-                case "mfaCode":
-
-                    setCode("");
-                    setSelectedMfaMethod("");
-                    setStep("mfa");
-                    break;
-
-
-                case "mfa":
-
-                    setCode("");
-                    setSelectedMfaMethod("");
-                    setMfaMethods([]);
-                    clearSignInState();
-                    setStep("email");
-                    break;
-
-
-                case "password":
-
-                    setPassword("");
-                    clearSignInState();
-                    setStep("email");
-                    break;
-
-
-                case "code":
-
-                    setCode("");
-                    setStep("password");
-                    break;
-
-
-                case "registration":
-
-                    setRegistrationState(null);
-                    setRegistrationMethods([]);
-                    setSelectedRegistrationMethod("");
-                    setRegistrationContact("");
-                    setRegistrationCode("");
-
-                    clearSignInState();
-
-                    setStep("email");
-
-                    break;
-
-
-                case "registration-code":
-
-                    setRegistrationCode("");
-                    setStep("registration");
-
-                    break;
-
-
-                default:
-
-                    break;
-
-            }
-
-        };
+    // BACK BUTTON
     // ============================================================
-        // RETURN LOGIN STATE AND HANDLERS
-        // ============================================================
-        return {
-            // --------------------------------------------------------
-            // Authentication state
-            // --------------------------------------------------------
 
-            username,
-            setUsername,
+    const handleBack = () => {
 
-            password,
-            setPassword,
-
-            code,
-            setCode,
+        clearMessages();
 
 
-            // --------------------------------------------------------
-            // MFA state
-            // --------------------------------------------------------
+        switch (step) {
 
-            mfaMethods,
-            activeMfaMethod,
-            selectedMfaMethod,
-            setSelectedMfaMethod,
+            // ----------------------------------------------------
+            // MFA code → MFA method selection
+            // ----------------------------------------------------
 
+            case "mfaCode":
 
-            // --------------------------------------------------------
-            // Registration state
-            // --------------------------------------------------------
+                setCode("");
 
-            registrationMethods,
-            selectedRegistrationMethod,
-            setSelectedRegistrationMethod,
+                setStep(
+                    "mfa"
+                );
 
-            registrationContact,
-            setRegistrationContact,
-
-            registrationCode,
-            setRegistrationCode,
+                break;
 
 
-            // --------------------------------------------------------
-            // UI state
-            // --------------------------------------------------------
+            // ----------------------------------------------------
+            // MFA method selection → email
+            // ----------------------------------------------------
 
-            step,
-            loading,
-            error,
-            success,
+            case "mfa":
 
-            showPassword,
-            setShowPassword,
+                setCode("");
 
-            remember,
-            setRemember,
+                setSelectedMfaMethod("");
 
+                setActiveMfaMethod(null);
 
-            // --------------------------------------------------------
-            // Authentication handlers
-            // --------------------------------------------------------
+                setMfaMethods([]);
 
-            handleEmailSubmit,
-            handlePasswordSubmit,
+                clearSignInState();
 
-            handleMfaMethodSubmit,
-            handleMfaSubmit,
+                setStep(
+                    "email"
+                );
 
-            handleCodeSubmit,
+                break;
 
 
-            // --------------------------------------------------------
-            // Registration handlers
-            // --------------------------------------------------------
+            // ----------------------------------------------------
+            // Password → email
+            // ----------------------------------------------------
 
-            handleRegistrationSubmit,
-            handleRegistrationCodeSubmit,
+            case "password":
+
+                setPassword("");
+
+                clearSignInState();
+
+                setStep(
+                    "email"
+                );
+
+                break;
 
 
-            // --------------------------------------------------------
-            // Navigation
-            // --------------------------------------------------------
+            // ----------------------------------------------------
+            // Standard verification code → password
+            // ----------------------------------------------------
 
-            handleBack
+            case "code":
 
-        };
+                setCode("");
+
+                setStep(
+                    "password"
+                );
+
+                break;
+
+
+            // ----------------------------------------------------
+            // Registration → email
+            // ----------------------------------------------------
+
+            case "registration":
+
+                setRegistrationState(
+                    null
+                );
+
+                setRegistrationMethods(
+                    []
+                );
+
+                setSelectedRegistrationMethod(
+                    ""
+                );
+
+                setRegistrationContact(
+                    ""
+                );
+
+                setRegistrationCode(
+                    ""
+                );
+
+                clearSignInState();
+
+                setStep(
+                    "email"
+                );
+
+                break;
+
+
+            // ----------------------------------------------------
+            // Registration code → registration
+            // ----------------------------------------------------
+
+            case "registration-code":
+
+                setRegistrationCode("");
+
+                setStep(
+                    "registration"
+                );
+
+                break;
+
+
+            // ----------------------------------------------------
+            // Default
+            // ----------------------------------------------------
+
+            default:
+
+                break;
+
+        }
+
     };
+
+
+    // ============================================================
+    // RETURN LOGIN STATE AND HANDLERS
+    // ============================================================
+
+    return {
+
+        // --------------------------------------------------------
+        // Authentication state
+        // --------------------------------------------------------
+
+        username,
+        setUsername,
+
+        password,
+        setPassword,
+
+        code,
+        setCode,
+
+
+        // --------------------------------------------------------
+        // Native MFA state
+        // --------------------------------------------------------
+
+        mfaMethods,
+
+        activeMfaMethod,
+
+        selectedMfaMethod,
+
+        setSelectedMfaMethod,
+
+
+        // --------------------------------------------------------
+        // Registration state
+        // --------------------------------------------------------
+
+        registrationMethods,
+
+        selectedRegistrationMethod,
+
+        setSelectedRegistrationMethod,
+
+        registrationContact,
+
+        setRegistrationContact,
+
+        registrationCode,
+
+        setRegistrationCode,
+
+
+        // --------------------------------------------------------
+        // UI state
+        // --------------------------------------------------------
+
+        step,
+
+        loading,
+
+        error,
+
+        success,
+
+        showPassword,
+
+        setShowPassword,
+
+        remember,
+
+        setRemember,
+
+
+        // --------------------------------------------------------
+        // Authentication handlers
+        // --------------------------------------------------------
+
+        handleEmailSubmit,
+
+        handlePasswordSubmit,
+
+        handleMfaMethodSubmit,
+
+        handleMfaSubmit,
+
+        handleCodeSubmit,
+
+
+        // --------------------------------------------------------
+        // Registration handlers
+        // --------------------------------------------------------
+
+        handleRegistrationSubmit,
+
+        handleRegistrationCodeSubmit,
+
+
+        // --------------------------------------------------------
+        // Navigation
+        // --------------------------------------------------------
+
+        handleBack
+
+    };
+
+};
 
 
 export default useNativeLogin;

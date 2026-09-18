@@ -180,9 +180,12 @@ const CustomLoginPage = () => {
                         loading={loading}
                         message={
                             activeMfaMethod?.challenge_channel ===
-                            "sms"
-                                ? "Enter the verification code sent by text message."
-                                : "Enter the verification code sent by email."
+                            "authenticator"
+                                ? "Enter the 6-digit code from Microsoft Authenticator."
+                                : activeMfaMethod?.challenge_channel ===
+                                "sms"
+                                    ? "Enter the verification code sent by text message."
+                                    : "Enter the verification code sent by email."
                         }
 
                         onCancel={handleBack}
