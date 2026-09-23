@@ -534,41 +534,42 @@ const useNativeLogin = () => {
 // ============================================================
 
 const getAccessToken = useCallback(async () => {
-
-    const authenticationResult =
-        nativeAuthenticationResultRef.current;
-
-    if (!authenticationResult) {
-
-        throw new Error(
-            "No completed Entra authentication result is available."
-        );
-    }
+    console.log(
+        "========== HOOK GET ACCESS TOKEN =========="
+    );
 
     if (!isApplicationAuthenticated) {
-
         throw new Error(
             "Application MFA has not been completed."
         );
     }
 
+    console.log(
+        "Requesting token from nativeAuthService..."
+    );
+
+    // IMPORTANT:
+    // Do NOT pass nativeAuthenticationResultRef.current here.
+    //
+    // nativeAuthService owns the original CustomAuthAccountData
+    // instance returned by Entra.
+    //
+    // Calling getNativeAccessToken() without an argument makes
+    // the service use that original instance.
     const accessToken =
-        await getNativeAccessToken(
-            authenticationResult
-        );
+        await getNativeAccessToken();
 
     if (
         !accessToken ||
         typeof accessToken !== "string"
     ) {
-
         throw new Error(
             "Unable to obtain the Entra access token."
         );
     }
 
     console.log(
-        "Entra access token obtained."
+        "Entra access token obtained successfully."
     );
 
     console.log(
@@ -583,9 +584,7 @@ const getAccessToken = useCallback(async () => {
 
     return accessToken;
 
-}, [
-    isApplicationAuthenticated
-]);
+}, [isApplicationAuthenticated]);
 
 
 // ============================================================
@@ -596,7 +595,6 @@ const callApi = useCallback(
     async (url, options = {}) => {
 
         if (!isApplicationAuthenticated) {
-
             throw new Error(
                 "Application MFA has not been completed."
             );
@@ -2429,70 +2427,124 @@ const callApi = useCallback(
     // your logout/session endpoint if you have one.
     // ============================================================
 
-    const clearApplicationAuthentication = useCallback(
-        () => {
+    // ============================================================
+// CLEAR APPLICATION AUTHENTICATION / LOGOUT
+// ============================================================
 
-            console.log(
-                "========== CLEARING APPLICATION AUTHENTICATION =========="
-            );
+const clearApplicationAuthentication = useCallback(
+    () => {
 
+        console.log(
+            "========== CLEARING APPLICATION AUTHENTICATION =========="
+        );
 
-            // ----------------------------------------------------
-            // Clear local authentication reference.
-            // ----------------------------------------------------
+        // --------------------------------------------------------
+        // Clear local authentication reference.
+        // --------------------------------------------------------
 
-            nativeAuthenticationResultRef.current =
-                null;
+        nativeAuthenticationResultRef.current = null;
 
+        // --------------------------------------------------------
+        // Clear service-level CustomAuthAccountData.
+        // --------------------------------------------------------
 
-            // ----------------------------------------------------
-            // Clear service-level authentication reference.
-            // ----------------------------------------------------
+        clearCompletedAuthenticationResult();
 
-            clearCompletedAuthenticationResult();
+        // --------------------------------------------------------
+        // Clear native sign-in state.
+        // --------------------------------------------------------
 
+        clearSignInState();
 
-            // ----------------------------------------------------
-            // Clear native sign-in state.
-            // ----------------------------------------------------
+        // --------------------------------------------------------
+        // Clear application authentication state.
+        // --------------------------------------------------------
 
-            clearSignInState();
+        setIsApplicationAuthenticated(false);
 
+        // --------------------------------------------------------
+        // Clear login fields.
+        // --------------------------------------------------------
 
-            // ----------------------------------------------------
-            // Clear React authentication state.
-            // ----------------------------------------------------
+        setUsername("");
+        setPassword("");
+        setCode("");
 
-            setIsApplicationAuthenticated(
-                false
-            );
+        // --------------------------------------------------------
+        // Clear MFA state.
+        // --------------------------------------------------------
 
-            setUsername("");
+        setMfaMethods([]);
+        setSelectedMfaMethod("");
+        setActiveMfaMethod(null);
 
-            setPassword("");
+        // --------------------------------------------------------
+        // Clear registration state.
+        // --------------------------------------------------------
 
-            setCode("");
+        setRegistrationMethods([]);
+        setSelectedRegistrationMethod("");
+        setRegistrationContact("");
+        setRegistrationCode("");
+        setRegistrationState(null);
 
-            setMfaMethods([]);
+        // --------------------------------------------------------
+        // Clear UI messages/state.
+        // --------------------------------------------------------
 
-            setSelectedMfaMethod("");
+        setSuccess("");
+        setError("");
+        setLoading(false);
 
-            setActiveMfaMethod(null);
+        // --------------------------------------------------------
+        // Return to login.
+        // --------------------------------------------------------
 
-            setSuccess("");
+        setStep("email");
 
-            setError("");
+    },
+    []
+);
+  // ============================================================
+// APPLICATION AUTHENTICATION STATUS
+//
+// For this application:
+//
+//     Entra authentication
+//             +
+//     Application MFA
+//
+// must both be complete before the application considers the
+// user authenticated.
+// ============================================================
 
+const isAuthenticated =  isApplicationAuthenticated;
 
-            setStep(
-                "email"
-            );
+// ============================================================
+// LOGOUT
+// ============================================================
+//
+// Public application-facing logout function.
+//
+// This currently clears the client-side authentication state.
+// The backend MFA session cookie will be handled separately
+// when we add the server-side logout endpoint.
+// ============================================================
 
-        },
-        []
-    );
+const logout = useCallback(
+    () => {
 
+        console.log(
+            "========== APPLICATION LOGOUT =========="
+        );
 
+        clearApplicationAuthentication();
+
+    },
+    [
+        clearApplicationAuthentication
+    ]
+);
     // ============================================================
     // RETURN LOGIN STATE AND HANDLERS
     // ============================================================
@@ -2511,9 +2563,11 @@ const callApi = useCallback(
         // --------------------------------------------------------
         // APPLICATION AUTHENTICATION
         // --------------------------------------------------------
+        isAuthenticated,
         isApplicationAuthenticated,
         getAccessToken,
         callApi,
+        logout,
         clearApplicationAuthentication,
         // --------------------------------------------------------
         // Native MFA state

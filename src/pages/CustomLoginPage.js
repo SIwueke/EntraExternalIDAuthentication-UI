@@ -8,7 +8,7 @@ import {
     Typography
 } from "@mui/material";
 
-import useNativeLogin from "../hooks/useNativeLogin";
+import { useNativeAuth } from "../auth/NativeAuthContext";
 
 import LoginEmailStep
     from "../components/authentication/LoginEmailStep";
@@ -118,7 +118,7 @@ const CustomLoginPage = () => {
         handleCodeSubmit,
         handleBack
 
-    } = useNativeLogin();
+    } = useNativeAuth();
 
 
     // ============================================================

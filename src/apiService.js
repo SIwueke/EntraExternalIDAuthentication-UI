@@ -1,148 +1,135 @@
-import axios from "axios";
-
 const API_BASE_URL = "https://localhost:7290";
 
-// ============================================================
-// AUTHENTICATED REQUEST CONFIG
-// ============================================================
-
-const authenticatedConfig = (token) => {
-
-    if (!token) {
-        throw new Error(
-            "No access token was supplied."
-        );
-    }
-
-    return {
-        headers: {
-            Authorization: `Bearer ${token}`
-        },
-        withCredentials: true
-    };
-};
-
-
-// ============================================================
-// PUBLIC API
-// ============================================================
-
-export const getPublicData = async () => {
-
-    const response =
-        await axios.get(
-            `${API_BASE_URL}/api/public`
-        );
-
-    return response.data;
-};
-
-
-// ============================================================
-// MFA STATUS
-// ============================================================
-
-export const getMfaStatus = async (token) => {
-
-    const response =
-        await axios.get(
-            `${API_BASE_URL}/api/mfa/status`,
-            authenticatedConfig(token)
-        );
-
-    return response.data;
-};
-
-
-// ============================================================
-// MFA VERIFY
-// ============================================================
-
-export const verifyMfa = async (
-    token,
-    code
-) => {
-
-    const response =
-        await axios.post(
-            `${API_BASE_URL}/api/mfa/verify`,
-            {
-                code
-            },
-            authenticatedConfig(token)
-        );
-
-    return response.data;
-};
-
-
-// ============================================================
-// SECURE API
-// ============================================================
-
-export const getSecureData = async (token) => {
-
-    console.log(
-        "GET SECURE TOKEN EXISTS:",
-        !!token
-    );
-
-    console.log(
-        "GET SECURE TOKEN LENGTH:",
-        token?.length
-    );
-
-    const response =
-        await axios.get(
-            `${API_BASE_URL}/api/secure`,
-            authenticatedConfig(token)
-        );
-
-    return response.data;
-};
-
-
-// ============================================================
-// MY CLAIMS API
-// ============================================================
-
-export const getMe = async (token) => {
-
-    const response =
-        await axios.get(
-            `${API_BASE_URL}/api/me`,
-            authenticatedConfig(token)
-        );
-
-    return response.data;
-};
-
-
-// ============================================================
-// GENERIC PROTECTED API
-// ============================================================
-
+/**
+ * Call a protected API using an already-acquired Entra access token.
+ *
+ * IMPORTANT:
+ * This function must NOT acquire the token itself.
+ * The token is obtained by useNativeLogin.js and passed here.
+ */
 export const callProtectedApi = async (
-    token,
+    accessToken,
     url,
     options = {}
 ) => {
+    console.log("========== CALL PROTECTED API ==========");
 
-    if (!token) {
+    if (!accessToken) {
         throw new Error(
-            "No access token was supplied."
+            "No Entra access token was supplied to callProtectedApi()."
         );
     }
 
-    const response = await axios({
-        url: `${API_BASE_URL}${url}`,
-        ...options,
-        headers: {
-            ...(options.headers || {}),
-            Authorization: `Bearer ${token}`
-        },
-        withCredentials: true
-    });
+    if (typeof accessToken !== "string") {
+        throw new Error(
+            "The Entra access token supplied to callProtectedApi() is not a string."
+        );
+    }
 
-    return response.data;
+    console.log(
+        "Using existing Entra access token. Length:",
+        accessToken.length
+    );
+
+    const {
+        method = "GET",
+        headers = {},
+        body,
+        ...restOptions
+    } = options;
+
+    const requestHeaders = {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        ...headers,
+    };
+
+    if (body !== undefined && body !== null) {
+        requestHeaders["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}${url}`,
+        {
+            method,
+            ...restOptions,
+            headers: requestHeaders,
+            body,
+            credentials: "include",
+        }
+    );
+
+    console.log(
+        `Protected API response: ${response.status} ${response.statusText}`
+    );
+
+    const contentType =
+        response.headers.get("content-type") || "";
+
+    let responseData;
+
+    if (contentType.includes("application/json")) {
+        responseData = await response.json();
+    } else {
+        responseData = await response.text();
+    }
+
+    if (!response.ok) {
+        const error = new Error(
+            `Protected API returned HTTP ${response.status}.`
+        );
+
+        error.status = response.status;
+        error.statusText = response.statusText;
+        error.data = responseData;
+
+        console.error(
+            "Protected API request failed:",
+            error
+        );
+
+        throw error;
+    }
+
+    return responseData;
+};
+
+
+/**
+ * GET helper for protected APIs.
+ */
+export const getProtectedApi = async (
+    accessToken,
+    url,
+    options = {}
+) => {
+    return callProtectedApi(
+        accessToken,
+        url,
+        {
+            ...options,
+            method: "GET",
+        }
+    );
+};
+
+
+/**
+ * POST helper for protected APIs.
+ */
+export const postProtectedApi = async (
+    accessToken,
+    url,
+    body,
+    options = {}
+) => {
+    return callProtectedApi(
+        accessToken,
+        url,
+        {
+            ...options,
+            method: "POST",
+            body: JSON.stringify(body),
+        }
+    );
 };

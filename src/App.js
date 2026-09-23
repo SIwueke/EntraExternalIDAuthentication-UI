@@ -1,1727 +1,1041 @@
-import React, { useState, useEffect } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useState,
+} from "react";
 
 import {
     BrowserRouter,
-    Routes,
+    Link,
     Route,
-    Link
+    Routes,
+    useNavigate,
 } from "react-router-dom";
 
-import { useMsal } from "@azure/msal-react";
-import { jwtDecode } from "jwt-decode";
+import {
+    useMsal,
+} from "@azure/msal-react";
 
-import { loginRequest } from "./auth/msalConfig";
+import {
+    jwtDecode,
+} from "jwt-decode";
+
+import {
+    loginRequest,
+} from "./auth/msalConfig";
+
+import {
+    NativeAuthProvider,
+    useNativeAuth,
+} from "./auth/NativeAuthContext";
 
 import CustomLoginPage from "./pages/CustomLoginPage";
-import MfaChallenge from "./components/MfaChallenge";
-
-import {
-    getPublicData,
-    getSecureData,
-    getMe,
-    getMfaStatus,
-    verifyMfa,
-    callProtectedApi
-} from "./apiService";
-
-import {
-    getCurrentUser,
-    getCurrentSignInState,
-    getCompletedAuthenticationResult,
-    getNativeAccessToken
-} from "./auth/nativeAuthService";
-
 import NativeLoginTestPage from "./pages/NativeLoginTestPage";
 
 import {
-    getMfaConfiguration
+    getMfaConfiguration,
 } from "./services/mfaConfigurationService";
 
-import UnifiedMfaChallenge
-    from "./components/UnifiedMfaChallenge";
 
-
-// ============================================================================
-// MsalDemoPage
-// ============================================================================
+// ============================================================
+// TEST BED / HOME PAGE
+// ============================================================
 
 function MsalDemoPage() {
 
-    const { instance, accounts } = useMsal();
+    // --------------------------------------------------------
+    // STANDARD MSAL
+    // --------------------------------------------------------
+
+    const {
+        instance,
+        accounts,
+    } = useMsal();
 
 
-    // =========================================================================
+    // --------------------------------------------------------
+    // ROUTING
+    // --------------------------------------------------------
+
+    const navigate = useNavigate();
+
+
+    // --------------------------------------------------------
+    // SHARED NATIVE AUTHENTICATION
+    // --------------------------------------------------------
+
+    const {
+        isApplicationAuthenticated,
+        getAccessToken,
+        callApi,
+        clearApplicationAuthentication,
+        username,
+        nativeAccount,
+    } = useNativeAuth();
+
+
+    // --------------------------------------------------------
     // STATE
-    // =========================================================================
+    // --------------------------------------------------------
 
-    const [publicResult, setPublicResult] = useState("");
+    const [secureResult, setSecureResult] =
+        useState(null);
 
-    const [secureResult, setSecureResult] = useState("");
+    const [userInfo, setUserInfo] =
+        useState(null);
 
-    const [userInfo, setUserInfo] = useState(null);
+    const [token, setToken] =
+        useState(null);
 
-    const [token, setToken] = useState("");
+    const [tokenSource, setTokenSource] =
+        useState(null);
 
-    const [tokenSource, setTokenSource] = useState("");
-
-    const [tokenClaims, setTokenClaims] = useState(null);
-
-    const [mfaRequired, setMfaRequired] =
-        useState(false);
-
-    const [mfaVerified, setMfaVerified] =
-        useState(false);
-
-    const [mfaMessage, setMfaMessage] =
-        useState("");
+    const [tokenClaims, setTokenClaims] =
+        useState(null);
 
     const [mfaMode, setMfaMode] =
-        useState("Existing");
+        useState(null);
 
-    const [nativeAuthenticationAvailable, setNativeAuthenticationAvailable] =
-        useState(false);
-
-    const [nativeAccount, setNativeAccount] =
+    const [mfaMessage, setMfaMessage] =
         useState(null);
 
     const [apiTestResult, setApiTestResult] =
-        useState("");
+        useState(null);
 
     const [loading, setLoading] =
         useState(false);
 
 
-    console.log(
-        "RENDER:",
-        {
-            mfaRequired,
-            mfaVerified,
-            mfaMessage,
-            tokenSource,
-            nativeAuthenticationAvailable
-        }
-    );
+    // --------------------------------------------------------
+    // STANDARD MSAL ACCOUNT
+    // --------------------------------------------------------
 
+    const msalAccount =
+        accounts && accounts.length > 0
+            ? accounts[0]
+            : null;
 
-    // =========================================================================
-    // CHECK NATIVE AUTHENTICATION STATE
-    // =========================================================================
 
-    const checkNativeAuthentication = async () => {
-
-        try {
-
-            const authenticationResult =
-                getCompletedAuthenticationResult();
-
-            if (!authenticationResult) {
-
-                console.log(
-                    "No completed Native Authentication result found."
-                );
-
-                setNativeAuthenticationAvailable(false);
-                setNativeAccount(null);
-
-                return null;
-            }
-
-
-            console.log(
-                "========== NATIVE AUTHENTICATION RESULT =========="
-            );
-
-            console.log(
-                authenticationResult
-            );
-
-
-            const account =
-                authenticationResult?.account ||
-                authenticationResult?.data?.account ||
-                null;
-
-
-            setNativeAuthenticationAvailable(true);
-
-            setNativeAccount(account);
-
-
-            console.log(
-                "Native authentication is available."
-            );
-
-            console.log(
-                "Native account:",
-                account
-            );
-
-
-            return authenticationResult;
-
-        }
-        catch (error) {
-
-            console.error(
-                "Unable to read Native Authentication state:",
-                error
-            );
-
-            setNativeAuthenticationAvailable(false);
-            setNativeAccount(null);
-
-            return null;
-        }
-    };
-
-
-    // =========================================================================
-    // STANDARD MSAL LOGIN
-    // =========================================================================
-
-    const login = () =>
-        instance.loginRedirect({
-            ...loginRequest,
-            prompt: "login"
-        });
-
-
-    // =========================================================================
-    // LOGOUT
-    // =========================================================================
-
-    const logout = () => {
-
-        setToken("");
-        setTokenClaims(null);
-        setTokenSource("");
-        setUserInfo(null);
-        setSecureResult("");
-        setApiTestResult("");
-        setMfaVerified(false);
-        setMfaRequired(false);
-        setMfaMessage("");
-
-        instance.logoutRedirect();
-    };
-
-
-    // =========================================================================
-    // GET ACCESS TOKEN
-    //
-    // Native Authentication is now the source of the API access token.
-    //
-    // This function:
-    //
-    // 1. Gets the completed CustomAuthAccountData.
-    // 2. Converts it into an Entra API access token.
-    // 3. Stores diagnostic information only.
-    //
-    // The complete bearer token is NOT displayed.
-    // =========================================================================
-
-    const getAccessToken = async () => {
-
-        console.log(
-            "========== GET NATIVE ACCESS TOKEN =========="
-        );
-
-
-        const authenticationResult =
-            getCompletedAuthenticationResult();
-
-
-        console.log(
-            "Completed Native Authentication Result:",
-            authenticationResult
-        );
-
-
-        if (!authenticationResult) {
-
-            throw new Error(
-                "No completed Native Authentication session is available. " +
-                "Please sign in again through /login and complete MFA."
-            );
-        }
-
-
-        const accessToken =
-            await getNativeAccessToken(
-                authenticationResult
-            );
-
-
-        if (
-            !accessToken ||
-            typeof accessToken !== "string"
-        ) {
-
-            throw new Error(
-                "Native Authentication did not return a valid access token."
-            );
-        }
-
-
-        console.log(
-            "========== NATIVE ACCESS TOKEN ACQUIRED =========="
-        );
-
-        console.log(
-            "Token length:",
-            accessToken.length
-        );
-
-
-        setToken(accessToken);
-
-        setTokenSource(
-            "Microsoft Entra External ID Native Authentication"
-        );
-
-
-        // ==============================================================
-        // DECODE TOKEN FOR DIAGNOSTICS
-        // ==============================================================
-
-        try {
-
-            const decoded =
-                jwtDecode(accessToken);
-
-
-            console.log(
-                "========== ACCESS TOKEN CLAIMS =========="
-            );
-
-            console.log(
-                "Audience:",
-                decoded.aud
-            );
-
-            console.log(
-                "Issuer:",
-                decoded.iss
-            );
-
-            console.log(
-                "Tenant:",
-                decoded.tid
-            );
-
-            console.log(
-                "Scope:",
-                decoded.scp
-            );
-
-            console.log(
-                "Subject:",
-                decoded.sub
-            );
-
-            console.log(
-                "OID:",
-                decoded.oid
-            );
-
-            console.log(
-                "AMR:",
-                decoded.amr
-            );
-
-
-            setTokenClaims(decoded);
-
-        }
-        catch (error) {
-
-            console.error(
-                "Unable to decode access token:",
-                error
-            );
-
-            setTokenClaims(null);
-        }
-
-
-        return accessToken;
-    };
-
-
-    // =========================================================================
-    // CHECK NATIVE AUTH ON PAGE LOAD
-    // =========================================================================
-
-    useEffect(() => {
-
-        checkNativeAuthentication();
-
-    }, []);
-
-
-    // =========================================================================
-    // PAGE NAVIGATION DIAGNOSTIC
-    // =========================================================================
-
-    useEffect(() => {
-
-        const navigation =
-            performance.getEntriesByType("navigation")[0];
-
-
-        console.log(
-            "========== PAGE NAVIGATION TYPE =========="
-        );
-
-        console.log(
-            "Navigation type:",
-            navigation?.type
-        );
-
-        console.log(
-            "Current URL:",
-            window.location.href
-        );
-
-        console.log(
-            "=========================================="
-        );
-
-    }, []);
-
-
-    // =========================================================================
+    // --------------------------------------------------------
     // LOAD MFA CONFIGURATION
-    // =========================================================================
-
-    const loadMfaConfiguration = async () => {
-
-        try {
-
-            const configuration =
-                await getMfaConfiguration();
-
-
-            console.log(
-                "========== MFA CONFIGURATION =========="
-            );
-
-            console.log(
-                "Configuration:",
-                configuration
-            );
-
-            console.log(
-                "Mode:",
-                configuration?.mode
-            );
-
-
-            setMfaMode(
-                configuration?.mode ||
-                "Existing"
-            );
-
-        }
-        catch (error) {
-
-            console.error(
-                "Unable to load MFA configuration:",
-                error
-            );
-
-            setMfaMode(
-                "Existing"
-            );
-        }
-    };
-
+    // --------------------------------------------------------
 
     useEffect(() => {
 
-        loadMfaConfiguration();
+        let cancelled = false;
+
+        const loadConfiguration =
+            async () => {
+
+                try {
+
+                    const configuration =
+                        await getMfaConfiguration();
+
+                    if (!cancelled) {
+
+                        setMfaMode(
+                            configuration?.mode ??
+                            null
+                        );
+                    }
+
+                } catch (error) {
+
+                    console.error(
+                        "Unable to load MFA configuration:",
+                        error
+                    );
+                }
+            };
+
+        loadConfiguration();
+
+        return () => {
+            cancelled = true;
+        };
 
     }, []);
 
 
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
-
-    const callPublicApi = async () => {
-
-        try {
-
-            setLoading(true);
-
-            setApiTestResult(
-                "Calling public API..."
-            );
-
-
-            const data =
-                await getPublicData();
-
-
-            setPublicResult(
-                JSON.stringify(
-                    data,
-                    null,
-                    2
-                )
-            );
-
-
-            setApiTestResult(
-                [
-                    "PUBLIC API TEST PASSED",
-                    "",
-                    "/api/public returned successfully."
-                ].join("\n")
-            );
-
-        }
-        catch (error) {
-
-            console.error(
-                "Public API error:",
-                error
-            );
-
-            setPublicResult(
-                `Request failed: ${
-                    error?.message ||
-                    "Unknown error"
-                }`
-            );
-
-            setApiTestResult(
-                [
-                    "PUBLIC API TEST FAILED",
-                    "",
-                    error?.message ||
-                    "Unable to call /api/public."
-                ].join("\n")
-            );
-
-        }
-        finally {
-
-            setLoading(false);
-        }
-    };
-
-
-    // =========================================================================
-    // TEST NATIVE ACCESS TOKEN
-    // =========================================================================
-
-    const testNativeAccessToken = async () => {
-
-        try {
-
-            setLoading(true);
-
-            setApiTestResult(
-                "Acquiring Native Authentication access token..."
-            );
-
-
-            const authenticationResult =
-                getCompletedAuthenticationResult();
-
-
-            console.log(
-                "========== TEST NATIVE ACCESS TOKEN =========="
-            );
-
-            console.log(
-                "Completed authentication result:",
-                authenticationResult
-            );
-
-
-            if (!authenticationResult) {
-
-                throw new Error(
-                    "No completed Native Authentication result was found. " +
-                    "Complete Native Authentication and Microsoft Authenticator MFA first."
-                );
-            }
-
-
-            const accessToken =
-                await getNativeAccessToken(
-                    authenticationResult
-                );
-
-
-            if (
-                !accessToken ||
-                typeof accessToken !== "string"
-            ) {
-
-                throw new Error(
-                    "Native Authentication did not return a valid access token."
-                );
-            }
-
-
-            let decoded = null;
-
-
-            try {
-
-                decoded =
-                    jwtDecode(accessToken);
-
-            }
-            catch (error) {
-
-                console.error(
-                    "Token decode error:",
-                    error
-                );
-            }
-
-
-            setToken(accessToken);
-
-            setTokenSource(
-                "Microsoft Entra External ID Native Authentication"
-            );
-
-            setTokenClaims(decoded);
-
-
-            setApiTestResult(
-                [
-                    "NATIVE ACCESS TOKEN TEST PASSED",
-                    "",
-                    `Token length: ${accessToken.length}`,
-                    `Audience: ${decoded?.aud || "N/A"}`,
-                    `Tenant: ${decoded?.tid || "N/A"}`,
-                    `Scope: ${decoded?.scp || "N/A"}`,
-                    `OID: ${decoded?.oid || "N/A"}`,
-                    `AMR: ${
-                        JSON.stringify(
-                            decoded?.amr || null
-                        )
-                    }`
-                ].join("\n")
-            );
-
-
-            console.log(
-                "========== NATIVE TOKEN TEST PASSED =========="
-            );
-
-            console.log(
-                "Token length:",
-                accessToken.length
-            );
-
-            console.log(
-                "Claims:",
-                decoded
-            );
-
-        }
-        catch (error) {
-
-            console.error(
-                "Native access token test failed:",
-                error
-            );
-
-
-            setApiTestResult(
-                [
-                    "NATIVE ACCESS TOKEN TEST FAILED",
-                    "",
-                    error?.message ||
-                    "Unable to acquire Native Authentication access token."
-                ].join("\n")
-            );
-
-        }
-        finally {
-
-            setLoading(false);
-        }
-    };
-
-
-    // =========================================================================
-    // GENERIC PROTECTED API
-    //
-    // This is the new central test.
-    //
-    // The page gets the raw Entra access token.
-    //
-    // apiService.js then takes care of:
-    //
-    // Authorization: Bearer <token>
-    //
-    // AND:
-    //
-    // withCredentials: true
-    //
-    // which allows the MFA session cookie to be sent.
-    // =========================================================================
-
-    const callProtectedEndpoint = async (url) => {
-
-        try {
-
-            setLoading(true);
-
-            setApiTestResult(
-                `Calling ${url}...`
-            );
-
-
-            // ==============================================================
-            // GET ENTRA ACCESS TOKEN
-            // ==============================================================
-
-            const accessToken =
-                await getAccessToken();
-
-
-            console.log(
-                "========== PROTECTED API TEST =========="
-            );
-
-            console.log(
-                "Endpoint:",
-                url
-            );
-
-            console.log(
-                "Access token acquired."
-            );
-
-            console.log(
-                "Token length:",
-                accessToken?.length
-            );
-
-
-            // ==============================================================
-            // CALL API THROUGH THE COMMON API SERVICE
-            // ==============================================================
-
-            const data =
-                await callProtectedApi(
-                    accessToken,
-                    url
-                );
-
-
-            console.log(
-                "========== PROTECTED API SUCCESS =========="
-            );
-
-            console.log(
-                "Response:",
-                data
-            );
-
-
-            if (url === "/api/secure") {
-
-                setSecureResult(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                );
-
-                setMfaVerified(true);
-
-                setMfaRequired(false);
-
-                setMfaMessage(
-                    "MFA verification already completed."
-                );
-
-            }
-
-
-            if (url === "/api/me") {
-
-                setUserInfo(data);
-
-            }
-
-
-            setApiTestResult(
-                [
-                    "PROTECTED API TEST PASSED",
-                    "",
-                    `Endpoint: ${url}`,
-                    "Entra access token accepted.",
-                    "Request completed successfully."
-                ].join("\n")
-            );
-
-
-            return data;
-
-        }
-        catch (error) {
-
-            console.error(
-                "Protected API error:",
-                error
-            );
-
-            console.error(
-                "Protected API response:",
-                error?.response
-            );
-
-            console.error(
-                "Protected API status:",
-                error?.response?.status
-            );
-
-
-            const status =
-                error?.response?.status;
-
-
-            // ==============================================================
-            // MFA REQUIRED
-            // ==============================================================
-
-            if (
-                url === "/api/secure" &&
-                (
-                    status === 401 ||
-                    status === 403
-                )
-            ) {
-
-                console.log(
-                    "========== MFA REQUIRED BY BACKEND =========="
-                );
-
-
-                setMfaRequired(true);
-
-                setMfaVerified(false);
-
-                setMfaMessage(
-                    "Enter the 6-digit code from Microsoft Authenticator."
-                );
-
-
-                setSecureResult(
-                    "Application MFA is required before /api/secure can be called."
-                );
-
-
-                setApiTestResult(
-                    [
-                        "MFA REQUIRED",
-                        "",
-                        "The secure API requires MFA.",
-                        "Please complete Microsoft Authenticator verification."
-                    ].join("\n")
-                );
-
-
-                return null;
-            }
-
-
-            setApiTestResult(
-                [
-                    "PROTECTED API TEST FAILED",
-                    "",
-                    `Endpoint: ${url}`,
-                    error?.response?.data
-                        ? JSON.stringify(
-                            error.response.data
-                        )
-                        : error?.message ||
-                          "Unable to call protected API."
-                ].join("\n")
-            );
-
-
-            throw error;
-
-        }
-        finally {
-
-            setLoading(false);
-
-        }
-    };
-
-
-    // =========================================================================
-    // SECURE API
-    // =========================================================================
-
-    const callSecureApi = async () => {
-
-        try {
-
-            await callProtectedEndpoint(
-                "/api/secure"
-            );
-
-        }
-        catch (error) {
-
-            // Error already handled by callProtectedEndpoint().
-            console.error(
-                "Secure API test failed:",
-                error
-            );
-        }
-    };
-
-
-    // =========================================================================
-    // MY CLAIMS API
-    // =========================================================================
-
-    const callMeApi = async () => {
-
-        try {
-
-            await callProtectedEndpoint(
-                "/api/me"
-            );
-
-        }
-        catch (error) {
-
-            console.error(
-                "/api/me test failed:",
-                error
-            );
-        }
-    };
-
-
-    // =========================================================================
-    // APPLICATION MFA VERIFY
-    //
-    // IMPORTANT:
-    //
-    // This deliberately uses getAccessToken() directly because the user
-    // is verifying MFA at this point.
-    //
-    // Once MFA succeeds, the backend establishes mfa_session.
-    //
-    // The subsequent /api/secure call uses callProtectedApi().
-    // =========================================================================
-
-    const handleMfaVerify =
-        async (code) => {
-
-            try {
+    // --------------------------------------------------------
+    // GET ACCESS TOKEN
+    // --------------------------------------------------------
+
+    const handleGetAccessToken =
+        useCallback(
+            async () => {
 
                 setLoading(true);
+                setApiTestResult(null);
 
-                setMfaMessage(
-                    "Verifying MFA..."
-                );
+                try {
 
+                    if (
+                        !isApplicationAuthenticated
+                    ) {
 
-                // =============================================================
-                // GET CURRENT NATIVE ENTRA TOKEN
-                // =============================================================
+                        throw new Error(
+                            "Application MFA has not been completed. Please sign in through /login first."
+                        );
+                    }
 
-                const accessToken =
-                    await getAccessToken();
+                    const accessToken =
+                        await getAccessToken();
 
+                    setToken(accessToken);
 
-                console.log(
-                    "========== VERIFYING APPLICATION MFA =========="
-                );
-
-
-                // =============================================================
-                // VERIFY AUTHENTICATOR CODE
-                // =============================================================
-
-                const result =
-                    await verifyMfa(
-                        accessToken,
-                        code
+                    setTokenSource(
+                        "Native Authentication + Application MFA"
                     );
 
 
-                console.log(
-                    "MFA VERIFY RESULT:",
-                    result
-                );
+                    // ----------------------------------------
+                    // Decode token claims for diagnostics
+                    // ----------------------------------------
+
+                    try {
+
+                        const claims =
+                            jwtDecode(
+                                accessToken
+                            );
+
+                        setTokenClaims(
+                            claims
+                        );
+
+                    } catch (decodeError) {
+
+                        console.error(
+                            "Unable to decode access token:",
+                            decodeError
+                        );
+
+                        setTokenClaims(
+                            null
+                        );
+                    }
 
 
-                // =============================================================
-                // MFA SUCCESS
-                // =============================================================
+                    setApiTestResult({
+                        success: true,
+                        message:
+                            "Entra access token obtained successfully.",
+                    });
 
-                setMfaVerified(true);
+                    return accessToken;
 
-                setMfaRequired(false);
+                } catch (error) {
 
-                setMfaMessage(
-                    "MFA verification successful."
-                );
+                    console.error(
+                        "Unable to obtain access token:",
+                        error
+                    );
+
+                    setApiTestResult({
+                        success: false,
+                        message:
+                            error?.message ??
+                            "Unable to obtain access token.",
+                    });
+
+                    throw error;
+
+                } finally {
+
+                    setLoading(false);
+                }
+            },
+            [
+                getAccessToken,
+                isApplicationAuthenticated,
+            ]
+        );
 
 
-                // =============================================================
-                // TEST SECURE API THROUGH COMMON API SERVICE
-                // =============================================================
+    // --------------------------------------------------------
+    // GENERIC PROTECTED API
+    // --------------------------------------------------------
 
-                console.log(
-                    "========== TESTING SECURE API AFTER MFA =========="
-                );
+    const callProtectedEndpoint =
+        useCallback(
+            async (url) => {
+
+                setLoading(true);
+                setApiTestResult(null);
+
+                try {
+
+                    if (
+                        !isApplicationAuthenticated
+                    ) {
+
+                        throw new Error(
+                            "Application MFA has not been completed. Please sign in through /login first."
+                        );
+                    }
 
 
-                const data =
-                    await callProtectedApi(
-                        accessToken,
-                        "/api/secure"
+                    // ----------------------------------------
+                    // IMPORTANT:
+                    //
+                    // callApi() comes from the shared
+                    // NativeAuthProvider.
+                    //
+                    // It obtains the access token and
+                    // calls callProtectedApi().
+                    // ----------------------------------------
+
+                    const result =
+                        await callApi(url);
+
+
+                    setApiTestResult({
+                        success: true,
+                        message:
+                            `${url} returned successfully.`,
+                    });
+
+
+                    return result;
+
+                } catch (error) {
+
+                    console.error(
+                        `Protected API error (${url}):`,
+                        error
                     );
 
 
-                console.log(
-                    "SECURE API AFTER MFA:",
-                    data
+                    const status =
+                        error?.status ??
+                        error?.response?.status;
+
+
+                    let message =
+                        error?.message ??
+                        `Protected API call failed: ${url}`;
+
+
+                    if (status === 401) {
+
+                        message =
+                            `${url} returned HTTP 401 Unauthorized.`;
+
+                    } else if (status === 403) {
+
+                        message =
+                            `${url} returned HTTP 403 Forbidden.`;
+                    }
+
+
+                    setApiTestResult({
+                        success: false,
+                        status,
+                        message,
+                    });
+
+
+                    throw error;
+
+                } finally {
+
+                    setLoading(false);
+                }
+            },
+            [
+                callApi,
+                isApplicationAuthenticated,
+            ]
+        );
+
+
+    // --------------------------------------------------------
+    // /api/me
+    // --------------------------------------------------------
+
+    const callMeApi =
+        useCallback(
+            async () => {
+
+                try {
+
+                    const result =
+                        await callProtectedEndpoint(
+                            "/api/me"
+                        );
+
+                    setUserInfo(
+                        result
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        "Unable to call /api/me:",
+                        error
+                    );
+                }
+            },
+            [
+                callProtectedEndpoint,
+            ]
+        );
+
+
+    // --------------------------------------------------------
+    // /api/secure
+    // --------------------------------------------------------
+
+    const callSecureApi =
+        useCallback(
+            async () => {
+
+                try {
+
+                    const result =
+                        await callProtectedEndpoint(
+                            "/api/secure"
+                        );
+
+                    setSecureResult(
+                        result
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        "Unable to call /api/secure:",
+                        error
+                    );
+                }
+            },
+            [
+                callProtectedEndpoint,
+            ]
+        );
+
+
+    // --------------------------------------------------------
+    // CLEAR NATIVE AUTHENTICATION
+    // --------------------------------------------------------
+
+    const handleNativeLogout =
+        useCallback(
+            () => {
+
+                clearApplicationAuthentication();
+
+
+                // Clear test-bed state
+
+                setToken(null);
+
+                setTokenSource(null);
+
+                setTokenClaims(null);
+
+                setUserInfo(null);
+
+                setSecureResult(null);
+
+                setApiTestResult(null);
+
+                setMfaMessage(null);
+
+
+                navigate(
+                    "/login"
+                );
+            },
+            [
+                clearApplicationAuthentication,
+                navigate,
+            ]
+        );
+
+
+    // --------------------------------------------------------
+    // STANDARD MSAL LOGIN
+    // --------------------------------------------------------
+
+    const handleMsalLogin =
+        async () => {
+
+            try {
+
+                await instance.loginRedirect(
+                    loginRequest
                 );
 
-
-                setSecureResult(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                );
-
-
-                setApiTestResult(
-                    [
-                        "APPLICATION MFA TEST PASSED",
-                        "",
-                        "Microsoft Authenticator code accepted.",
-                        "MFA session established.",
-                        "/api/secure returned successfully."
-                    ].join("\n")
-                );
-
-            }
-            catch (error) {
+            } catch (error) {
 
                 console.error(
-                    "MFA verification error:",
+                    "MSAL login failed:",
                     error
                 );
-
-
-                setMfaVerified(false);
-
-
-                const responseMessage =
-                    error?.response?.data;
-
-
-                setMfaMessage(
-                    typeof responseMessage === "string"
-                        ? responseMessage
-                        : responseMessage
-                            ? JSON.stringify(
-                                responseMessage
-                            )
-                            : error?.message ||
-                              "MFA verification failed."
-                );
-
-
-                setApiTestResult(
-                    [
-                        "APPLICATION MFA TEST FAILED",
-                        "",
-                        error?.message ||
-                        "MFA verification failed."
-                    ].join("\n")
-                );
-
-            }
-            finally {
-
-                setLoading(false);
             }
         };
 
 
-    // =========================================================================
-    // UNIFIED MFA METHOD
-    // =========================================================================
+    // --------------------------------------------------------
+    // STANDARD MSAL LOGOUT
+    // --------------------------------------------------------
 
-    const handleUnifiedMfaMethod =
-        async (method) => {
+    const handleMsalLogout =
+        async () => {
 
-            console.log(
-                "========== UNIFIED MFA METHOD =========="
-            );
+            try {
 
-            console.log(
-                "Selected method:",
-                method
-            );
+                await instance.logoutRedirect();
 
+            } catch (error) {
 
-            if (method === "totp") {
-
-                setMfaMessage(
-                    "Enter the 6-digit code from Microsoft Authenticator."
+                console.error(
+                    "MSAL logout failed:",
+                    error
                 );
-
-                return;
-            }
-
-
-            if (method === "email") {
-
-                setMfaMessage(
-                    "Email verification will be implemented next."
-                );
-
-                return;
-            }
-
-
-            if (method === "sms") {
-
-                setMfaMessage(
-                    "SMS verification will be implemented next."
-                );
-
-                return;
             }
         };
 
 
-    // =========================================================================
-    // NATIVE MFA METHOD
-    // =========================================================================
-
-    const handleNativeMfaMethod =
-        async (methodId) => {
-
-            console.log(
-                "Native MFA method selected:",
-                methodId
-            );
-
-            setMfaMessage(
-                "Native MFA method selected."
-            );
-        };
-
-
-    // =========================================================================
-    // UI
-    // =========================================================================
+    // ========================================================
+    // RENDER
+    // ========================================================
 
     return (
-
         <div
             style={{
-                padding: "20px"
+                padding: "30px",
+                fontFamily:
+                    "Arial, sans-serif",
             }}
         >
 
             <h1>
-                Microsoft Entra External ID Demo
+                Entra External ID Demo
             </h1>
 
+            <p>
+                Native Authentication +
+                Application Authenticator MFA
+                test bed
+            </p>
+
+
+            {/* ================================================= */}
+            {/* NAVIGATION */}
+            {/* ================================================= */}
 
             <div
                 style={{
-                    marginBottom: "20px"
+                    marginBottom: "30px",
+                    display: "flex",
+                    gap: "15px",
+                    flexWrap: "wrap",
                 }}
             >
 
+                <Link to="/">
+                    Test Bed
+                </Link>
+
+                <Link to="/login">
+                    Native Login
+                </Link>
+
                 <Link to="/native-login-test">
-
-                    <button>
-                        Native Authentication Test
-                    </button>
-
+                    Native Login Test
                 </Link>
 
             </div>
 
 
-            {/* ================================================================
-                AUTHENTICATION STATUS
-            ================================================================= */}
+            {/* ================================================= */}
+            {/* NATIVE AUTHENTICATION STATUS */}
+            {/* ================================================= */}
 
-            <div
+            <section
                 style={{
+                    border:
+                        "1px solid #ccc",
+                    padding: "20px",
                     marginBottom: "20px",
-                    padding: "15px",
-                    background: "#f5f5f5",
-                    border: "1px solid #ddd"
+                    borderRadius: "8px",
                 }}
             >
 
-                <h3>
-                    Authentication Status
-                </h3>
-
-
-                <p>
-                    <strong>
-                        Native Authentication:
-                    </strong>
-
-                    {" "}
-
-                    {nativeAuthenticationAvailable
-                        ? "Available"
-                        : "Not available"}
-                </p>
-
-
-                {nativeAccount && (
-
-                    <p>
-                        <strong>
-                            Native User:
-                        </strong>
-
-                        {" "}
-
-                        {
-                            nativeAccount.username ||
-                            "Authenticated user"
-                        }
-                    </p>
-
-                )}
-
-
-                <p>
-                    <strong>
-                        Token Source:
-                    </strong>
-
-                    {" "}
-
-                    {tokenSource || "None"}
-                </p>
+                <h2>
+                    Native Authentication
+                </h2>
 
 
                 <p>
                     <strong>
                         Application MFA:
-                    </strong>
+                    </strong>{" "}
 
-                    {" "}
-
-                    {mfaVerified
-                        ? "Verified"
-                        : "Not verified"}
+                    {isApplicationAuthenticated
+                        ? "Authenticated"
+                        : "Not authenticated"}
                 </p>
 
 
                 <p>
                     <strong>
-                        MFA Mode:
-                    </strong>
+                        Username:
+                    </strong>{" "}
 
-                    {" "}
-
-                    {mfaMode}
+                    {username ||
+                        "None"}
                 </p>
 
-            </div>
+
+                <p>
+                    <strong>
+                        Native account:
+                    </strong>{" "}
+
+                    {nativeAccount
+                        ? "Available"
+                        : "Not available"}
+                </p>
 
 
-            {/* ================================================================
-                STANDARD MSAL LOGIN
-            ================================================================= */}
+                <p>
+                    <strong>
+                        MFA mode:
+                    </strong>{" "}
 
-            {!nativeAuthenticationAvailable && accounts.length === 0 ? (
+                    {mfaMode ||
+                        "Unknown"}
+                </p>
+
+
+                {mfaMessage && (
+                    <p>
+                        <strong>
+                            MFA:
+                        </strong>{" "}
+
+                        {mfaMessage}
+                    </p>
+                )}
+
+
+                {!isApplicationAuthenticated && (
+                    <button
+                        type="button"
+                        onClick={() =>
+                            navigate(
+                                "/login"
+                            )
+                        }
+                    >
+                        Sign in with Native Authentication
+                    </button>
+                )}
+
+
+                {isApplicationAuthenticated && (
+                    <button
+                        type="button"
+                        onClick={
+                            handleNativeLogout
+                        }
+                    >
+                        Clear Native Authentication
+                    </button>
+                )}
+
+            </section>
+
+
+            {/* ================================================= */}
+            {/* TOKEN */}
+            {/* ================================================= */}
+
+            <section
+                style={{
+                    border:
+                        "1px solid #ccc",
+                    padding: "20px",
+                    marginBottom: "20px",
+                    borderRadius: "8px",
+                }}
+            >
+
+                <h2>
+                    Entra Access Token
+                </h2>
+
+
+                <p>
+                    <strong>
+                        Source:
+                    </strong>{" "}
+
+                    {tokenSource ||
+                        "None"}
+                </p>
+
+
+                <p>
+                    <strong>
+                        Token:
+                    </strong>{" "}
+
+                    {token
+                        ? `Available (${token.length} characters)`
+                        : "Not loaded"}
+                </p>
+
 
                 <button
-                    onClick={login}
-                    disabled={loading}
+                    type="button"
+                    onClick={
+                        handleGetAccessToken
+                    }
+                    disabled={
+                        loading ||
+                        !isApplicationAuthenticated
+                    }
                 >
-                    Login
+                    {loading
+                        ? "Loading..."
+                        : "Get Access Token"}
                 </button>
 
-            ) : (
-
-                <>
-
-                    {/* ========================================================
-                        STANDARD MSAL ACCOUNT
-                    ========================================================= */}
-
-                    {accounts.length > 0 && (
-
-                        <>
-
-                            <h3>
-                                Logged in as:
-                                {" "}
-                                {accounts[0].username}
-                            </h3>
+            </section>
 
 
-                            <button
-                                onClick={logout}
-                                disabled={loading}
-                            >
-                                Logout
-                            </button>
+            {/* ================================================= */}
+            {/* API TESTS */}
+            {/* ================================================= */}
 
-                        </>
+            <section
+                style={{
+                    border:
+                        "1px solid #ccc",
+                    padding: "20px",
+                    marginBottom: "20px",
+                    borderRadius: "8px",
+                }}
+            >
 
-                    )}
+                <h2>
+                    Protected API Tests
+                </h2>
 
 
-                    <hr />
-
-
-                    {/* ========================================================
-                        API TESTS
-                    ========================================================= */}
-
-                    <h3>
-                        API Tests
-                    </h3>
-
+                <div
+                    style={{
+                        display:
+                            "flex",
+                        gap: "10px",
+                        flexWrap:
+                            "wrap",
+                        marginBottom:
+                            "20px",
+                    }}
+                >
 
                     <button
-                        onClick={callPublicApi}
-                        disabled={loading}
+                        type="button"
+                        onClick={
+                            callMeApi
+                        }
+                        disabled={
+                            loading ||
+                            !isApplicationAuthenticated
+                        }
                     >
-                        Call Public API
+                        Call /api/me
                     </button>
 
 
-                    {" "}
-
-
                     <button
-                        onClick={testNativeAccessToken}
-                        disabled={loading}
+                        type="button"
+                        onClick={
+                            callSecureApi
+                        }
+                        disabled={
+                            loading ||
+                            !isApplicationAuthenticated
+                        }
                     >
-                        Test Native Access Token
+                        Call /api/secure
                     </button>
 
-
-                    {" "}
-
-
-                    <button
-                        onClick={callMeApi}
-                        disabled={loading}
-                    >
-                        Test /api/me
-                    </button>
+                </div>
 
 
-                    {" "}
+                {apiTestResult && (
+                    <div>
+
+                        <h3>
+                            API Test Result
+                        </h3>
 
 
-                    <button
-                        onClick={callSecureApi}
-                        disabled={loading}
-                    >
-                        Test /api/secure
-                    </button>
-
-
-                    {loading && (
-
-                        <span
+                        <pre
                             style={{
-                                marginLeft: "10px"
+                                whiteSpace:
+                                    "pre-wrap",
+                                wordBreak:
+                                    "break-word",
                             }}
                         >
-                            Working...
-                        </span>
-
-                    )}
-
-
-                    {/* ========================================================
-                        MFA
-                    ========================================================= */}
-
-                    {mfaRequired && (
-
-                        <div
-                            style={{
-                                marginTop: "20px"
-                            }}
-                        >
-
-                            {mfaMode === "Unified" ? (
-
-                                <UnifiedMfaChallenge
-                                    totpEnabled={true}
-                                    emailEnabled={true}
-                                    smsEnabled={true}
-                                    onSelectMethod={
-                                        handleUnifiedMfaMethod
-                                    }
-                                    onVerify={
-                                        handleMfaVerify
-                                    }
-                                    onCancel={() => {
-
-                                        setMfaRequired(false);
-
-                                        setMfaMessage("");
-
-                                    }}
-                                />
-
-                            ) : (
-
-                                <MfaChallenge
-                                    methods={{
-                                        totp: true,
-                                        email: true,
-                                        sms: true
-                                    }}
-
-                                    defaultMethod="totp"
-
-                                    message={
-                                        mfaMessage
-                                    }
-
-                                    onVerifyTotp={
-                                        handleMfaVerify
-                                    }
-
-                                    onSelectEmail={() => {
-
-                                        console.log(
-                                            "Email MFA selected"
-                                        );
-
-                                    }}
-
-                                    onSelectSms={() => {
-
-                                        console.log(
-                                            "SMS MFA selected"
-                                        );
-
-                                    }}
-
-                                    onCancel={() => {
-
-                                        setMfaRequired(false);
-
-                                        setMfaMessage("");
-
-                                    }}
-                                />
-
-                            )}
-
-                        </div>
-
-                    )}
-
-
-                    {/* ========================================================
-                        MFA MESSAGE
-                    ========================================================= */}
-
-                    {mfaMessage && (
-
-                        <div
-                            style={{
-                                marginTop: "15px",
-                                padding: "10px",
-                                background: "#fff8dc",
-                                border: "1px solid #e0c97f"
-                            }}
-                        >
-
-                            {mfaMessage}
-
-                        </div>
-
-                    )}
-
-
-                    {/* ========================================================
-                        API TEST RESULT
-                    ========================================================= */}
-
-                    {apiTestResult && (
-
-                        <div
-                            style={{
-                                marginTop: "20px",
-                                padding: "15px",
-                                background: "#eef6ff",
-                                border: "1px solid #b8d8f5",
-                                whiteSpace: "pre-wrap"
-                            }}
-                        >
-
-                            <h3>
-                                API Test Result
-                            </h3>
-
-                            <pre>
-                                {apiTestResult}
-                            </pre>
-
-                        </div>
-
-                    )}
-
-
-                    <hr />
-
-
-                    {/* ========================================================
-                        PUBLIC API RESULT
-                    ========================================================= */}
-
-                    <h3>
-                        Public API Result
-                    </h3>
-
-
-                    <pre>
-                        {publicResult}
-                    </pre>
-
-
-                    {/* ========================================================
-                        SECURE API RESULT
-                    ========================================================= */}
-
-                    <h3>
-                        Secure API Result
-                    </h3>
-
-
-                    <pre>
-                        {secureResult}
-                    </pre>
-
-
-                    {/* ========================================================
-                        USER CLAIMS
-                    ========================================================= */}
-
-                    <h3>
-                        User Claims
-                    </h3>
-
-
-                    <pre>
-                        {
-                            JSON.stringify(
-                                userInfo,
+                            {JSON.stringify(
+                                apiTestResult,
                                 null,
                                 2
-                            )
-                        }
-                    </pre>
-
-
-                    {/* ========================================================
-                        MFA CONFIGURATION
-                    ========================================================= */}
-
-                    <div
-                        style={{
-                            marginTop: "20px",
-                            padding: "10px",
-                            background: "#f5f5f5"
-                        }}
-                    >
-
-                        MFA Mode:
-                        {" "}
-                        {mfaMode}
+                            )}
+                        </pre>
 
                     </div>
+                )}
+
+            </section>
 
 
-                    {/* ========================================================
-                        ACCESS TOKEN INFORMATION
-                    ========================================================= */}
+            {/* ================================================= */}
+            {/* USER RESULT */}
+            {/* ================================================= */}
 
-                    <h3>
-                        Access Token Information
-                    </h3>
+            {userInfo && (
+                <section
+                    style={{
+                        border:
+                            "1px solid #ccc",
+                        padding: "20px",
+                        marginBottom:
+                            "20px",
+                        borderRadius:
+                            "8px",
+                    }}
+                >
 
-
-                    <p>
-                        <strong>
-                            Source:
-                        </strong>
-
-                        {" "}
-
-                        {tokenSource || "None"}
-                    </p>
-
-
-                    <p>
-                        <strong>
-                            Token length:
-                        </strong>
-
-                        {" "}
-
-                        {token
-                            ? token.length
-                            : 0}
-                    </p>
+                    <h2>
+                        /api/me Result
+                    </h2>
 
 
-                    <p>
-                        <strong>
-                            Audience:
-                        </strong>
-
-                        {" "}
-
-                        {tokenClaims?.aud || "N/A"}
-                    </p>
-
-
-                    <p>
-                        <strong>
-                            Scope:
-                        </strong>
-
-                        {" "}
-
-                        {tokenClaims?.scp || "N/A"}
-                    </p>
-
-
-                    <p>
-                        <strong>
-                            Tenant:
-                        </strong>
-
-                        {" "}
-
-                        {tokenClaims?.tid || "N/A"}
-                    </p>
-
-
-                    <p>
-                        <strong>
-                            Object ID:
-                        </strong>
-
-                        {" "}
-
-                        {tokenClaims?.oid || "N/A"}
-                    </p>
-
-
-                    <p>
-                        <strong>
-                            AMR:
-                        </strong>
-
-                        {" "}
-
-                        {
-                            JSON.stringify(
-                                tokenClaims?.amr ||
-                                null
-                            )
-                        }
-
-                    </p>
-
-
-                    <p
+                    <pre
                         style={{
-                            color: "#777"
+                            whiteSpace:
+                                "pre-wrap",
+                            wordBreak:
+                                "break-word",
                         }}
                     >
-                        The complete bearer token is deliberately not
-                        displayed in the UI.
-                    </p>
+                        {JSON.stringify(
+                            userInfo,
+                            null,
+                            2
+                        )}
+                    </pre>
 
-                </>
-
+                </section>
             )}
+
+
+            {/* ================================================= */}
+            {/* SECURE RESULT */}
+            {/* ================================================= */}
+
+            {secureResult && (
+                <section
+                    style={{
+                        border:
+                            "1px solid #ccc",
+                        padding: "20px",
+                        marginBottom:
+                            "20px",
+                        borderRadius:
+                            "8px",
+                    }}
+                >
+
+                    <h2>
+                        /api/secure Result
+                    </h2>
+
+
+                    <pre
+                        style={{
+                            whiteSpace:
+                                "pre-wrap",
+                            wordBreak:
+                                "break-word",
+                        }}
+                    >
+                        {JSON.stringify(
+                            secureResult,
+                            null,
+                            2
+                        )}
+                    </pre>
+
+                </section>
+            )}
+
+
+            {/* ================================================= */}
+            {/* TOKEN CLAIMS */}
+            {/* ================================================= */}
+
+            {tokenClaims && (
+                <section
+                    style={{
+                        border:
+                            "1px solid #ccc",
+                        padding: "20px",
+                        marginBottom:
+                            "20px",
+                        borderRadius:
+                            "8px",
+                    }}
+                >
+
+                    <h2>
+                        Access Token Claims
+                    </h2>
+
+
+                    <pre
+                        style={{
+                            whiteSpace:
+                                "pre-wrap",
+                            wordBreak:
+                                "break-word",
+                        }}
+                    >
+                        {JSON.stringify(
+                            tokenClaims,
+                            null,
+                            2
+                        )}
+                    </pre>
+
+                </section>
+            )}
+
+
+            {/* ================================================= */}
+            {/* STANDARD MSAL - COMPARISON ONLY */}
+            {/* ================================================= */}
+
+            <section
+                style={{
+                    border:
+                        "1px solid #ddd",
+                    padding: "20px",
+                    marginTop: "30px",
+                    borderRadius:
+                        "8px",
+                }}
+            >
+
+                <h2>
+                    Standard MSAL Authentication
+                </h2>
+
+
+                <p>
+                    This section is retained
+                    only for comparison with
+                    the Native Authentication
+                    flow.
+                </p>
+
+
+                <p>
+                    <strong>
+                        MSAL account:
+                    </strong>{" "}
+
+                    {msalAccount?.username ||
+                        "Not signed in"}
+                </p>
+
+
+                <div
+                    style={{
+                        display:
+                            "flex",
+                        gap: "10px",
+                    }}
+                >
+
+                    <button
+                        type="button"
+                        onClick={
+                            handleMsalLogin
+                        }
+                    >
+                        MSAL Login
+                    </button>
+
+
+                    <button
+                        type="button"
+                        onClick={
+                            handleMsalLogout
+                        }
+                    >
+                        MSAL Logout
+                    </button>
+
+                </div>
+
+            </section>
 
         </div>
     );
 }
 
 
-// ============================================================================
-// APP
-// ============================================================================
+// ============================================================
+// APPLICATION ROOT
+// ============================================================
 
 function App() {
 
-    console.log(
-        "App document loaded:",
-        performance.timeOrigin
-    );
-
-
     return (
+        <NativeAuthProvider>
 
-        <BrowserRouter>
+            <BrowserRouter>
 
-            <Routes>
+                <Routes>
 
-                <Route
-                    path="/"
-                    element={
-                        <MsalDemoPage />
-                    }
-                />
+                    <Route
+                        path="/"
+                        element={
+                            <MsalDemoPage />
+                        }
+                    />
 
+                    <Route
+                        path="/login"
+                        element={
+                            <CustomLoginPage />
+                        }
+                    />
 
-                <Route
-                    path="/native-login-test"
-                    element={
-                        <NativeLoginTestPage />
-                    }
-                />
+                    <Route
+                        path="/native-login-test"
+                        element={
+                            <NativeLoginTestPage />
+                        }
+                    />
 
+                </Routes>
 
-                <Route
-                    path="/login"
-                    element={
-                        <CustomLoginPage />
-                    }
-                />
+            </BrowserRouter>
 
-            </Routes>
-
-        </BrowserRouter>
+        </NativeAuthProvider>
     );
 }
 
