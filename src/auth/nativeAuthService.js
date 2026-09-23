@@ -26,6 +26,23 @@ let signInState = null;
 
 
 // ============================================================
+// COMPLETED ENTRA AUTHENTICATION RESULT
+//
+// IMPORTANT:
+//
+// This stores the CustomAuthAccountData object returned by
+// Microsoft Entra after successful password authentication.
+//
+// We do NOT store the raw access token here.
+//
+// The CustomAuthAccountData object can acquire an access token
+// when the application needs one.
+// ============================================================
+
+let completedAuthenticationResult = null;
+
+
+// ============================================================
 // NATIVE AUTH CLIENT
 // ============================================================
 
@@ -159,15 +176,138 @@ const createCompletedResult = (result) => {
 
 
 // ============================================================
+// STORE COMPLETED AUTHENTICATION RESULT
+// ============================================================
+//
+// The result.data object is the CustomAuthAccountData instance.
+//
+// This is deliberately stored instead of the raw access token.
+// ============================================================
+
+export const storeCompletedAuthenticationResult = (
+    authenticationResult
+) => {
+
+    console.log(
+        "========== STORED COMPLETED NATIVE AUTHENTICATION RESULT =========="
+    );
+
+    if (!authenticationResult) {
+
+        console.error(
+            "Completed authentication did not contain authentication data."
+        );
+
+        completedAuthenticationResult = null;
+
+        return null;
+    }
+
+    completedAuthenticationResult =
+        authenticationResult;
+
+    console.log(
+        "=========================================================="
+    );
+
+    console.log(
+        "========== COMPLETED ENTRA AUTHENTICATION STORED ========="
+    );
+
+    console.log(
+        "Authentication result constructor:",
+        authenticationResult?.constructor?.name
+    );
+
+    console.log(
+        "Account:",
+        authenticationResult?.account
+    );
+
+    console.log(
+        "Has getAccessToken():",
+        typeof authenticationResult?.getAccessToken ===
+            "function"
+    );
+
+    console.log(
+        "=========================================================="
+    );
+
+    return authenticationResult;
+};
+
+// ============================================================
+// GET COMPLETED AUTHENTICATION RESULT
+// ============================================================
+//
+// This allows React/application code to retrieve the
+// CustomAuthAccountData object without exposing the raw token.
+// ============================================================
+
+export const getCompletedAuthenticationResult = () => {
+
+    console.log(
+        "========== GET COMPLETED NATIVE AUTH RESULT =========="
+    );
+
+    console.log(
+        "Result available:",
+        !!completedAuthenticationResult
+    );
+
+    if (completedAuthenticationResult) {
+
+        console.log(
+            "Result constructor:",
+            completedAuthenticationResult?.constructor?.name
+        );
+
+        console.log(
+            "Account:",
+            completedAuthenticationResult?.account
+        );
+
+        console.log(
+            "Has getAccessToken():",
+            typeof completedAuthenticationResult?.getAccessToken ===
+                "function"
+        );
+    }
+
+    console.log(
+        "======================================================="
+    );
+
+    return completedAuthenticationResult;
+};
+
+
+// ============================================================
+// CLEAR COMPLETED AUTHENTICATION RESULT
+// ============================================================
+
+export const clearCompletedAuthenticationResult = () => {
+    console.log(
+        "========== CLEARING COMPLETED NATIVE AUTHENTICATION RESULT =========="
+    );
+
+    console.trace(
+        "CLEAR COMPLETED NATIVE AUTH RESULT CALL STACK"
+    );
+
+    completedAuthenticationResult = null;
+};
+
+
+// ============================================================
 // NATIVE TOKEN DIAGNOSTICS
 //
-// IMPORTANT:
 // This does NOT acquire a token.
-// It only tells us which APIs are exposed by the native
-// authentication client after successful authentication.
+// It only inspects the native authentication result.
 //
-// We are deliberately doing this before changing token
-// acquisition logic.
+// IMPORTANT:
+// Do not log the actual access token.
 // ============================================================
 
 const diagnoseNativeTokenCapabilities = async (
@@ -179,295 +319,34 @@ const diagnoseNativeTokenCapabilities = async (
     );
 
     console.log(
-        "========== NATIVE AUTH CLIENT TOKEN DIAGNOSTICS =========="
+        "========== NATIVE AUTH TOKEN DIAGNOSTICS ================="
     );
 
     try {
 
-        const authClient =
-            await getNativeAuthClient();
-
-
-        console.log(
-            "Native auth client:",
-            authClient
-        );
-
+        const authenticationResult =
+            result?.data ?? null;
 
         console.log(
-            "Native auth client constructor:",
-            authClient?.constructor?.name
-        );
-
-
-        // ----------------------------------------------------
-        // Public methods exposed directly by the prototype
-        // ----------------------------------------------------
-
-        const prototype =
-            Object.getPrototypeOf(authClient);
-
-
-        const prototypeMethods =
-            prototype
-                ? Object.getOwnPropertyNames(prototype)
-                : [];
-
-
-        console.log(
-            "Native auth client prototype methods:",
-            prototypeMethods
-        );
-
-
-        // ----------------------------------------------------
-        // Look specifically for token-related methods
-        // ----------------------------------------------------
-
-        const tokenMethods =
-            prototypeMethods.filter(
-                name =>
-                    name
-                        .toLowerCase()
-                        .includes("token")
-            );
-
-
-        console.log(
-            "TOKEN-RELATED CLIENT METHODS:",
-            tokenMethods
-        );
-
-
-        // ----------------------------------------------------
-        // Look for account-related methods
-        // ----------------------------------------------------
-
-        const accountMethods =
-            prototypeMethods.filter(
-                name =>
-                    name
-                        .toLowerCase()
-                        .includes("account")
-            );
-
-
-        console.log(
-            "ACCOUNT-RELATED CLIENT METHODS:",
-            accountMethods
-        );
-
-
-        // ----------------------------------------------------
-        // Look for authentication-related methods
-        // ----------------------------------------------------
-
-        const authMethods =
-            prototypeMethods.filter(
-                name => {
-
-                    const lower =
-                        name.toLowerCase();
-
-                    return (
-                        lower.includes("auth") ||
-                        lower.includes("sign") ||
-                        lower.includes("silent")
-                    );
-                }
-            );
-
-
-        console.log(
-            "AUTH/SIGN-IN RELATED CLIENT METHODS:",
-            authMethods
-        );
-
-
-        // ----------------------------------------------------
-        // Completed authentication result
-        // ----------------------------------------------------
-
-        console.log(
-            "Completed result:",
-            result
-        );
-
-
-        console.log(
-            "Completed result constructor:",
-            result?.constructor?.name
-        );
-
-
-        // ----------------------------------------------------
-        // Completed result data
-        // ----------------------------------------------------
-
-        console.log(
-            "Completed result data:",
-            result?.data
-        );
-        console.log(
-            "========== CACHE CLIENT DIAGNOSTICS =========="
-        );
-
-        const cacheClient =
-            result?.data?.cacheClient;
-
-        console.log(
-            "Cache client:",
-            cacheClient
+            "Authentication result constructor:",
+            authenticationResult?.constructor?.name
         );
 
         console.log(
-            "Cache client constructor:",
-            cacheClient?.constructor?.name
-        );
-
-        const cachePrototype =
-            cacheClient
-                ? Object.getPrototypeOf(cacheClient)
-                : null;
-
-        const cacheMethods =
-            cachePrototype
-                ? Object.getOwnPropertyNames(cachePrototype)
-                : [];
-
-        console.log(
-            "Cache client methods:",
-            cacheMethods
+            "Has getAccessToken():",
+            typeof authenticationResult?.getAccessToken ===
+                "function"
         );
 
         console.log(
-            "TOKEN-RELATED CACHE METHODS:",
-            cacheMethods.filter(
-                name =>
-                    name
-                        .toLowerCase()
-                        .includes("token")
-            )
+            "Account present:",
+            !!authenticationResult?.account
         );
 
         console.log(
-            "ACCOUNT-RELATED CACHE METHODS:",
-            cacheMethods.filter(
-                name =>
-                    name
-                        .toLowerCase()
-                        .includes("account")
-            )
+            "Account username:",
+            authenticationResult?.account?.username
         );
-
-        console.log(
-            "============================================="
-        );
-
-        console.log(
-            "Completed result data constructor:",
-            result?.data?.constructor?.name
-        );
-
-
-        // ----------------------------------------------------
-        // Account
-        // ----------------------------------------------------
-
-        console.log(
-            "Completed account:",
-            result?.data?.account
-        );
-
-
-        console.log(
-            "Completed account keys:",
-            result?.data?.account
-                ? Object.keys(result.data.account)
-                : []
-        );
-
-
-        // ----------------------------------------------------
-        // ID TOKEN
-        // ----------------------------------------------------
-
-        console.log(
-            "ID token present:",
-            !!result?.data?.account?.idToken
-        );
-
-
-        console.log(
-            "ID token claims:",
-            result?.data?.account?.idTokenClaims
-        );
-
-
-        // ----------------------------------------------------
-        // Authentication result keys
-        // ----------------------------------------------------
-
-        console.log(
-            "Authentication result keys:",
-            result?.data
-                ? Object.keys(result.data)
-                : []
-        );
-
-
-        // ----------------------------------------------------
-        // Completed state
-        // ----------------------------------------------------
-
-        console.log(
-            "Completed state:",
-            result?.state
-        );
-
-
-        console.log(
-            "Completed state constructor:",
-            result?.state?.constructor?.name
-        );
-
-
-        // ----------------------------------------------------
-        // Check methods on completed state
-        // ----------------------------------------------------
-
-        const statePrototype =
-            result?.state
-                ? Object.getPrototypeOf(result.state)
-                : null;
-
-
-        const stateMethods =
-            statePrototype
-                ? Object.getOwnPropertyNames(statePrototype)
-                : [];
-
-
-        console.log(
-            "Completed state methods:",
-            stateMethods
-        );
-
-
-        const stateTokenMethods =
-            stateMethods.filter(
-                name =>
-                    name
-                        .toLowerCase()
-                        .includes("token")
-            );
-
-
-        console.log(
-            "TOKEN-RELATED STATE METHODS:",
-            stateTokenMethods
-        );
-
 
         console.log(
             "=========================================================="
@@ -615,6 +494,12 @@ const processAuthenticationResult = async (
 
         await diagnoseNativeTokenCapabilities(
             result
+        );
+
+        // IMPORTANT:
+        // Keep the CustomAuthAccountData object.
+        storeCompletedAuthenticationResult(
+            result?.data 
         );
 
         return createCompletedResult(
@@ -827,6 +712,8 @@ export const startSignIn = async (
 
             signInState = null;
 
+            completedAuthenticationResult = null;
+
             return {
 
                 success: false,
@@ -896,6 +783,8 @@ export const startSignIn = async (
 
 
         signInState = null;
+
+        completedAuthenticationResult = null;
 
 
         return {
@@ -1096,20 +985,16 @@ export const submitPassword = async (
 // PROCESS MFA AWAITING STATE
 // ============================================================
 
-const processMfaAwaitingState = async (
-    mfaState
-) => {
+const processMfaAwaitingState = async (mfaState) => {
 
     console.log(
-        "========== MFA AWAITING =========="
+        "========== MFA AWAITING STATE =========="
     );
-
 
     console.log(
         "MFA state:",
         mfaState
     );
-
 
     console.log(
         "MFA state constructor:",
@@ -1117,49 +1002,56 @@ const processMfaAwaitingState = async (
     );
 
 
-    if (!mfaState) {
-
-        return {
-
-            success: false,
-
-            step: "error",
-
-            message:
-                "MFA is required, but no MFA state was returned."
-
-        };
-
-    }
+    signInState = mfaState;
 
 
-    signInState =
-        mfaState;
+    try {
+
+        console.log(
+            "========== CALLING getAuthMethods() =========="
+        );
 
 
-    let authMethods = [];
+        const authMethods =
+            await mfaState.getAuthMethods();
 
 
-    // ---------------------------------------------------------
-    // Get available authentication methods
-    // ---------------------------------------------------------
+        console.log(
+            "========== getAuthMethods() COMPLETED =========="
+        );
 
-    if (
-        typeof mfaState.getAuthMethods ===
-        "function"
-    ) {
 
-        try {
+        console.log(
+            "Raw authMethods:",
+            authMethods
+        );
 
-            authMethods =
-                await mfaState.getAuthMethods();
 
-        }
-        catch (error) {
+        console.log(
+            "authMethods constructor:",
+            authMethods?.constructor?.name
+        );
 
-            console.error(
-                "Unable to retrieve MFA authentication methods:",
-                error
+
+        console.log(
+            "authMethods is array:",
+            Array.isArray(authMethods)
+        );
+
+
+        console.log(
+            "Number of authentication methods:",
+            authMethods?.length ?? 0
+        );
+
+
+        if (
+            !authMethods ||
+            authMethods.length === 0
+        ) {
+
+            console.warn(
+                "========== NO ENTRA MFA METHODS RETURNED =========="
             );
 
 
@@ -1169,33 +1061,18 @@ const processMfaAwaitingState = async (
 
                 step: "error",
 
-                message:
-                    error?.message ??
-                    "Unable to retrieve MFA authentication methods."
+                error:
+                    "Microsoft Entra External ID did not return any MFA authentication methods."
 
             };
 
         }
 
-    }
 
+        console.log(
+            "========== AVAILABLE ENTRA MFA METHODS =========="
+        );
 
-    // =========================================================
-    // MFA DIAGNOSTICS
-    // =========================================================
-
-    console.log(
-        "========== AVAILABLE MFA METHODS =========="
-    );
-
-
-    console.log(
-        "Number of methods:",
-        authMethods?.length ?? 0
-    );
-
-
-    if (Array.isArray(authMethods)) {
 
         authMethods.forEach(
             (method, index) => {
@@ -1208,48 +1085,6 @@ const processMfaAwaitingState = async (
                 console.log(
                     "Full method:",
                     method
-                );
-
-
-                console.log(
-                    "Own property names:",
-                    Object.getOwnPropertyNames(method)
-                );
-
-
-                console.log(
-                    "Own property symbols:",
-                    Object.getOwnPropertySymbols(method)
-                );
-
-
-                console.log(
-                    "Prototype:",
-                    Object.getPrototypeOf(method)
-                );
-
-
-                console.log(
-                    "Prototype property names:",
-                    Object.getOwnPropertyNames(
-                        Object.getPrototypeOf(method) ?? {}
-                    )
-                );
-
-
-                console.log(
-                    "JSON:",
-                    JSON.stringify(
-                        method,
-                        null,
-                        2
-                    )
-                );
-
-
-                console.log(
-                    "Constructor:",
-                    method?.constructor?.name
                 );
 
 
@@ -1308,28 +1143,59 @@ const processMfaAwaitingState = async (
 
 
                 console.log(
-                    "=========================================="
+                    "Object keys:",
+                    Object.keys(method ?? {})
                 );
 
             }
         );
 
+
+        console.log(
+            "========== END AVAILABLE MFA METHODS =========="
+        );
+
+
+        return {
+
+            success: true,
+
+            step: "mfa",
+
+            state: mfaState,
+
+            authMethods,
+
+            message:
+                "MFA verification is required."
+
+        };
+
     }
+    catch (error) {
+
+        console.error(
+            "========== getAuthMethods() ERROR =========="
+        );
 
 
-    console.log(
-        "=========================================="
-    );
+        console.error(
+            "Error:",
+            error
+        );
 
 
-    // ---------------------------------------------------------
-    // No methods
-    // ---------------------------------------------------------
+        console.error(
+            "Message:",
+            error?.message
+        );
 
-    if (
-        !authMethods ||
-        authMethods.length === 0
-    ) {
+
+        console.error(
+            "Stack:",
+            error?.stack
+        );
+
 
         return {
 
@@ -1337,33 +1203,13 @@ const processMfaAwaitingState = async (
 
             step: "error",
 
-            message:
-                "MFA is required, but no usable authentication method is registered for this account."
+            error:
+                error?.message ||
+                "Unable to retrieve MFA authentication methods."
 
         };
 
     }
-
-
-    // ---------------------------------------------------------
-    // Return methods to UI
-    // ---------------------------------------------------------
-
-    return {
-
-        success: true,
-
-        step: "mfa",
-
-        state:
-            mfaState,
-
-        authMethods,
-
-        message:
-            "MFA verification is required."
-
-    };
 
 };
 
@@ -1426,58 +1272,7 @@ export const requestMfaChallenge = async (
             authenticationMethodId
         );
 
-        console.log("========== MFA CHALLENGE DIAGNOSTIC ==========");
 
-console.log(
-    "signInState constructor:",
-    signInState?.constructor?.name
-);
-
-console.log(
-    "Selected MFA method id:",
-    authenticationMethodId
-);
-
-console.log(
-    "signInState keys:",
-    signInState
-        ? Object.keys(signInState)
-        : []
-);
-
-console.log(
-    "signInState own properties:",
-    signInState
-        ? Object.getOwnPropertyNames(signInState)
-        : []
-);
-
-console.log(
-    "signInState prototype:",
-    signInState
-        ? Object.getOwnPropertyNames(
-              Object.getPrototypeOf(signInState)
-          )
-        : []
-);
-
-console.log("==============================================");
-     console.log(
-    "MFA state constructor before request:",
-    signInState?.constructor?.name
-);
-
-console.log(
-    "MFA method ID before request:",
-    authenticationMethodId
-);
-
-console.log(
-    "MFA state prototype methods:",
-    Object.getOwnPropertyNames(
-        Object.getPrototypeOf(signInState)
-    )
-);
         const result =
             await signInState.requestChallenge(
                 authenticationMethodId
@@ -1587,6 +1382,10 @@ console.log(
 
             await diagnoseNativeTokenCapabilities(
                 result
+            );
+
+            storeCompletedAuthenticationResult(
+              result?.data
             );
 
             return createCompletedResult(
@@ -1797,16 +1596,13 @@ export const submitMfaChallenge = async (
             );
 
 
-            // ==================================================
-            // NEW DIAGNOSTICS
-            //
-            // This is the only new functional change.
-            // We inspect the native client before implementing
-            // access-token acquisition.
-            // ==================================================
-
             await diagnoseNativeTokenCapabilities(
                 result
+            );
+
+
+            storeCompletedAuthenticationResult(
+              result?.data
             );
 
 
@@ -1997,413 +1793,74 @@ export const submitVerificationCode = async (
 
 };
 
-/**
- * Get an access token after native authentication has completed.
- *
- * The native authentication SDK stores the account and tokens in its
- * internal cache. The completed authentication result is a
- * CustomAuthAccountData instance, which exposes getAccessToken().
- */
-export async function getNativeAccessToken(authenticationResult) {
-    console.log("========== GET NATIVE ACCESS TOKEN ==========");
 
-    console.log("========== NATIVE AUTH CACHE INSPECTION ==========");
+// ============================================================
+// GET NATIVE ACCESS TOKEN
+// ============================================================
+//
+// IMPORTANT:
+//
+// authenticationResult is a CustomAuthAccountData object.
+//
+// getAccessToken() returns a GetAccessTokenResult:
+//
+//     {
+//         state: ...,
+//         data: {
+//             accessToken: "..."
+//         }
+//     }
+//
+// Therefore the actual token is:
+//
+//     result.data.accessToken
+//
+// We never return or log the token during diagnostics.
+// ============================================================
 
-    const cacheClient = authenticationResult?.cacheClient;
+export const getNativeAccessToken = async (
+    authenticationResult = null
+) => {
+    const authResult =
+        authenticationResult ||
+        getCompletedAuthenticationResult();
 
-    console.log("========== BROWSER STORAGE INSPECTION ==========");
-
-const browserStorage = cacheClient?.browserStorage;
-console.log("========== REFRESH TOKEN CACHE INSPECTION ==========");
-
-if (
-    browserStorage &&
-    typeof browserStorage.getRefreshTokenCredential === "function"
-) {
-    console.log(
-        "getRefreshTokenCredential method found."
-    );
-
-    console.log(
-        "getTokenKeys method found:",
-        typeof browserStorage.getTokenKeys === "function"
-    );
-
-    console.log(
-        "generateCredentialKey method found:",
-        typeof browserStorage.generateCredentialKey === "function"
-    );
-
-    console.log(
-        "internalStorage constructor:",
-        browserStorage?.internalStorage?.constructor?.name
-    );
+    if (!authResult) {
+        throw new Error(
+            "No completed Native Authentication result was found. Complete Native Authentication and Microsoft Authenticator MFA first."
+        );
+    }
 
     console.log(
-        "browserStorage constructor:",
-        browserStorage?.browserStorage?.constructor?.name
+        "Getting Native Access Token..."
     );
 
-    console.log(
-        "temporaryCacheStorage constructor:",
-        browserStorage?.temporaryCacheStorage?.constructor?.name
-    );
-} else {
-    console.log(
-        "getRefreshTokenCredential method NOT found."
-    );
-}
-
-console.log("=====================================================");
-
-console.log(
-    "Browser storage constructor:",
-    browserStorage?.constructor?.name
-);
-
-console.log(
-    "Browser storage keys:",
-    browserStorage
-        ? Object.keys(browserStorage)
-        : []
-);
-
-console.log(
-    "Browser storage own properties:",
-    browserStorage
-        ? Object.getOwnPropertyNames(browserStorage)
-        : []
-);
-
-console.log(
-    "Browser storage prototype:",
-    browserStorage
-        ? Object.getOwnPropertyNames(
-              Object.getPrototypeOf(browserStorage)
-          )
-        : []
-);
-
-console.log("================================================");
-
-    console.log("========== ACQUIRE TOKEN INSPECTION ==========");
-
-if (cacheClient && typeof cacheClient.acquireToken === "function") {
-    const originalAcquireToken = cacheClient.acquireToken.bind(cacheClient);
-
-    cacheClient.acquireToken = async function (request) {
-        console.log("========== ACQUIRE TOKEN REQUEST ==========");
-
-        console.log(
-            "Request keys:",
-            request ? Object.keys(request) : []
-        );
-
-        console.log(
-            "Request grantType:",
-            request?.grantType
-        );
-
-        console.log(
-            "Request scopes:",
-            request?.scopes
-        );
-
-        console.log(
-            "Request authority:",
-            request?.authority
-        );
-
-        console.log(
-            "Request clientId:",
-            request?.clientId
-        );
-
-        console.log(
-            "Has refreshToken:",
-            !!request?.refreshToken
-        );
-
-        console.log(
-            "Has authorizationCode:",
-            !!request?.code
-        );
-
-        console.log(
-            "Has password:",
-            !!request?.password
-        );
-
-        console.log("============================================");
-
-        return originalAcquireToken(request);
-    };
-
-    console.log("acquireToken inspection installed.");
-} else {
-    console.log("acquireToken method was not available.");
-}
-
-console.log("==============================================");
-    console.log(
-        "Cache client constructor:",
-        cacheClient?.constructor?.name
-    );
-
-    console.log(
-        "Cache client keys:",
-        cacheClient ? Object.keys(cacheClient) : []
-    );
-
-    console.log(
-        "Cache client own properties:",
-        cacheClient
-            ? Object.getOwnPropertyNames(cacheClient)
-            : []
-    );
-
-    console.log(
-        "Cache client prototype:",
-        cacheClient
-            ? Object.getOwnPropertyNames(
-                  Object.getPrototypeOf(cacheClient)
-              )
-            : []
-    );
-
-    console.log("==================================================");
-
-
-    try {
-        if (!authenticationResult) {
-            throw new Error("No authentication result was supplied.");
-        }
-
-        console.log(
-            "Authentication result constructor:",
-            authenticationResult?.constructor?.name
-        );
-
-        console.log(
-            "Authentication result methods:",
-            Object.getOwnPropertyNames(
-                Object.getPrototypeOf(authenticationResult)
-            )
-        );
-
-        if (typeof authenticationResult.getAccessToken !== "function") {
-            throw new Error(
-                "The native authentication result does not expose getAccessToken()."
-            );
-        }
-
-        const scopes = [
-            "api://266fbe6d-e931-433e-b17f-6c833d78c8a5/access_as_user"
-        ];
-
-        console.log("Requesting native access token...");
-        console.log("Scopes:", scopes);
-        console.log("========== NATIVE AUTH CACHE INSPECTION ==========");
-
-        const cacheClient = authenticationResult?.cacheClient;
-
-        console.log("========== BROWSER STORAGE INSPECTION ==========");
-
-const browserStorage = cacheClient?.browserStorage;
-console.log("========== REFRESH TOKEN CACHE INSPECTION ==========");
-
-if (
-    browserStorage &&
-    typeof browserStorage.getRefreshTokenCredential === "function"
-) {
-    console.log(
-        "getRefreshTokenCredential method found."
-    );
-
-    console.log(
-        "getTokenKeys method found:",
-        typeof browserStorage.getTokenKeys === "function"
-    );
-
-    console.log(
-        "generateCredentialKey method found:",
-        typeof browserStorage.generateCredentialKey === "function"
-    );
-
-    console.log(
-        "internalStorage constructor:",
-        browserStorage?.internalStorage?.constructor?.name
-    );
-
-    console.log(
-        "browserStorage constructor:",
-        browserStorage?.browserStorage?.constructor?.name
-    );
-
-    console.log(
-        "temporaryCacheStorage constructor:",
-        browserStorage?.temporaryCacheStorage?.constructor?.name
-    );
-} else {
-    console.log(
-        "getRefreshTokenCredential method NOT found."
-    );
-}
-
-console.log("=====================================================");
-
-console.log(
-    "Browser storage constructor:",
-    browserStorage?.constructor?.name
-);
-
-console.log(
-    "Browser storage keys:",
-    browserStorage
-        ? Object.keys(browserStorage)
-        : []
-);
-
-console.log(
-    "Browser storage own properties:",
-    browserStorage
-        ? Object.getOwnPropertyNames(browserStorage)
-        : []
-);
-
-console.log(
-    "Browser storage prototype:",
-    browserStorage
-        ? Object.getOwnPropertyNames(
-              Object.getPrototypeOf(browserStorage)
-          )
-        : []
-);
-
-console.log("================================================");
-
-
-       console.log("========== ACQUIRE TOKEN INSPECTION ==========");
-
-if (cacheClient && typeof cacheClient.acquireToken === "function") {
-    const originalAcquireToken = cacheClient.acquireToken.bind(cacheClient);
-
-    cacheClient.acquireToken = async function (request) {
-        console.log("========== ACQUIRE TOKEN REQUEST ==========");
-
-        console.log(
-            "Request keys:",
-            request ? Object.keys(request) : []
-        );
-
-        console.log(
-            "Request grantType:",
-            request?.grantType
-        );
-
-        console.log(
-            "Request scopes:",
-            request?.scopes
-        );
-
-        console.log(
-            "Request authority:",
-            request?.authority
-        );
-
-        console.log(
-            "Request clientId:",
-            request?.clientId
-        );
-
-        console.log(
-            "Has refreshToken:",
-            !!request?.refreshToken
-        );
-
-        console.log(
-            "Has authorizationCode:",
-            !!request?.code
-        );
-
-        console.log(
-            "Has password:",
-            !!request?.password
-        );
-
-        console.log("============================================");
-
-        return originalAcquireToken(request);
-    };
-
-    console.log("acquireToken inspection installed.");
-} else {
-    console.log("acquireToken method was not available.");
-}
-
-console.log("==============================================");
-        console.log(
-            "Cache client constructor:",
-            cacheClient?.constructor?.name
-        );
-
-        console.log(
-            "Cache client keys:",
-            cacheClient ? Object.keys(cacheClient) : []
-        );
-
-        console.log(
-            "Cache client own properties:",
-            cacheClient
-                ? Object.getOwnPropertyNames(cacheClient)
-                : []
-        );
-
-        console.log(
-            "Cache client prototype:",
-            cacheClient
-                ? Object.getOwnPropertyNames(
-                    Object.getPrototypeOf(cacheClient)
-                )
-                : []
-        );
-
-        console.log("==================================================");
-        const result = await authenticationResult.getAccessToken({
-            scopes,
+    const result =
+        await authResult.getAccessToken({
+            scopes: [
+                "api://266fbe6d-e931-433e-b17f-6c833d78c8a5/access_as_user"
+            ],
             forceRefresh: false
         });
 
-        console.log("========== NATIVE ACCESS TOKEN RESULT ==========");
-        console.log("Result:", result);
-        console.log(
-            "Result constructor:",
-            result?.constructor?.name
+    const accessToken =
+        result?.data?.accessToken;
+
+    if (!accessToken) {
+        throw new Error(
+            "Native Authentication completed, but no access token was returned."
         );
-
-        console.log(
-            "Result keys:",
-            result
-                ? Object.keys(result)
-                : []
-        );
-
-        return result;
-
-    } catch (error) {
-        console.error(
-            "========== NATIVE ACCESS TOKEN ERROR =========="
-        );
-
-        console.error("Error:", error);
-        console.error("Error name:", error?.name);
-        console.error("Error message:", error?.message);
-        console.error("Error code:", error?.errorCode);
-        console.error("Error stack:", error?.stack);
-
-        throw error;
     }
-}
+
+    console.log(
+        "Native Access Token acquired. Length:",
+        accessToken.length
+    );
+
+    return accessToken;
+};
+
+
 // ============================================================
 // GET CURRENT USER
 // ============================================================
@@ -2470,6 +1927,31 @@ export const clearSignInState = () => {
 
 
     signInState = null;
+
+};
+
+
+// ============================================================
+// CLEAR EVERYTHING
+//
+// Use this when the application logs the user out.
+// ============================================================
+
+export const clearAuthentication = () => {
+
+    console.log(
+        "========== CLEARING NATIVE AUTHENTICATION =========="
+    );
+
+
+    signInState = null;
+
+    completedAuthenticationResult = null;
+
+
+    console.log(
+        "Native authentication state cleared."
+    );
 
 };
 

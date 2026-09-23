@@ -24,22 +24,11 @@ export const nativeAuthConfig = {
     },
 
     auth: {
-
-        clientId:
-            "aa13de8e-a0f3-4501-a6d0-27f790f7929f",
-
-        authority:
-            "https://devsandboxciam.ciamlogin.com",
-
-        redirectUri:
-            "/",
-
-        postLogoutRedirectUri:
-            "/",
-
-        navigateToLoginRequestUrl:
-            false
-
+        clientId: "aa13de8e-a0f3-4501-a6d0-27f790f7929f",
+        authority: "https://devsandboxciam.ciamlogin.com",
+        redirectUri: "http://localhost:3000/redirect.html",
+        postLogoutRedirectUri: "http://localhost:3000/",
+        navigateToLoginRequestUrl: false
     },
 
     cache: {

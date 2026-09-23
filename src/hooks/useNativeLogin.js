@@ -1,4 +1,11 @@
-import {useEffect, useRef, useState} from "react";
+
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState
+} from "react";
+
 import {
     startSignIn,
     submitPassword,
@@ -7,7 +14,9 @@ import {
     submitMfaChallenge,
     requestMfaChallenge,
     getNativeAccessToken,
-    getCurrentUser
+    getCurrentUser,
+    clearCompletedAuthenticationResult,
+    storeCompletedAuthenticationResult
 } from "../auth/nativeAuthService";
 
 import {
@@ -17,6 +26,7 @@ import {
     selectPreferredRegistrationMethod
 } from "../auth/authRegistrationService";
 
+import {callProtectedApi,} from "../auth/apiService";
 
 const useNativeLogin = () => {
 
@@ -24,7 +34,8 @@ const useNativeLogin = () => {
     // APPLICATION MFA IDENTIFIERS
     // ============================================================
 
-    const APPLICATION_AUTHENTICATOR_ID =   "application-authenticator";
+    const APPLICATION_AUTHENTICATOR_ID =
+        "application-authenticator";
 
 
     // ============================================================
@@ -37,29 +48,57 @@ const useNativeLogin = () => {
 
 
     // ============================================================
+    // APPLICATION AUTHENTICATION STATE
+    //
+    // COMPLETE APPLICATION AUTHENTICATION:
+    //
+    // Entra password authentication
+    //          +
+    // Application Microsoft Authenticator TOTP
+    //
+    // The Entra authentication result remains stored separately.
+    // It is required to obtain an API access token.
+    // ============================================================
+
+    const [
+        isApplicationAuthenticated,
+        setIsApplicationAuthenticated
+    ] = useState(false);
+
+
+    // ============================================================
     // NATIVE MFA STATE
+    //
+    // Retained for future Entra SMS / Email MFA support.
     // ============================================================
 
     const [mfaMethods, setMfaMethods] = useState([]);
 
-    const [selectedMfaMethod, setSelectedMfaMethod] =    useState("");
+    const [selectedMfaMethod, setSelectedMfaMethod] =
+        useState("");
 
-    const [activeMfaMethod, setActiveMfaMethod] =  useState(null);
+    const [activeMfaMethod, setActiveMfaMethod] =
+        useState(null);
 
 
     // ============================================================
     // MFA REGISTRATION STATE
     // ============================================================
 
-    const [registrationMethods, setRegistrationMethods] =  useState([]);
+    const [registrationMethods, setRegistrationMethods] =
+        useState([]);
 
-    const [selectedRegistrationMethod, setSelectedRegistrationMethod] =  useState("");
+    const [selectedRegistrationMethod, setSelectedRegistrationMethod] =
+        useState("");
 
-    const [registrationContact, setRegistrationContact] =  useState("");
+    const [registrationContact, setRegistrationContact] =
+        useState("");
 
-    const [registrationCode, setRegistrationCode] = useState("");
+    const [registrationCode, setRegistrationCode] =
+        useState("");
 
-    const [registrationState, setRegistrationState] =  useState(null);
+    const [registrationState, setRegistrationState] =
+        useState(null);
 
 
     // ============================================================
@@ -74,11 +113,29 @@ const useNativeLogin = () => {
 
     const [success, setSuccess] = useState("");
 
-    const [showPassword, setShowPassword] =   useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
-    const [remember, setRemember] =     useState(false);
+    const [remember, setRemember] = useState(false);
 
-  const nativeAuthenticationResultRef =  useRef(null);
+
+    // ============================================================
+    // COMPLETED ENTRA AUTHENTICATION RESULT
+    //
+    // This MUST remain the CustomAuthAccountData object returned
+    // by Microsoft Entra External ID.
+    //
+    // It must NOT be replaced by:
+    //
+    //     /api/mfa/verify
+    //
+    // because that endpoint returns an application MFA response,
+    // not an Entra authentication result.
+    // ============================================================
+
+    const nativeAuthenticationResultRef =
+        useRef(null);
+
+
     // ============================================================
     // ERROR HELPER
     // ============================================================
@@ -101,7 +158,25 @@ const useNativeLogin = () => {
         );
     };
 
+    const callApi = async (url, options = {}) => {
+        const authenticationResult =
+            nativeAuthenticationResultRef.current;
 
+        if (!authenticationResult) {
+            throw new Error(
+            "No completed authentication result is available."
+            );
+        }
+
+        if (!isApplicationAuthenticated) {
+            throw new Error(
+            "Application MFA has not been completed."
+            );
+        }
+
+        return callProtectedApi(authenticationResult,url,   options
+        );
+    };
     // ============================================================
     // CLEAR MESSAGES
     // ============================================================
@@ -248,10 +323,143 @@ const useNativeLogin = () => {
 
 
     // ============================================================
-    // HANDLE AUTHENTICATION COMPLETED
+    // PASSWORD AUTHENTICATION COMPLETED
+    //
+    // Entra password authentication
+    //             ↓
+    // Application Microsoft Authenticator
+    //
+    // The completed Entra result is retained.
     // ============================================================
 
-    const handleAuthenticationCompleted =  async (authenticationResult) => {
+   const handlePasswordAuthenticationCompleted = (
+        authenticationResult
+    ) => {
+        console.log(
+            "========== NATIVE AUTHENTICATION COMPLETED =========="
+        );
+
+        console.log(
+            "Authentication Result:",
+            authenticationResult
+        );
+
+        // ---------------------------------------------------------
+        // Validate the Native Authentication result
+        // ---------------------------------------------------------
+
+        if (!authenticationResult) {
+            console.error(
+                "No authentication result was supplied."
+            );
+
+            throw new Error(
+                "Native Authentication completed without an authentication result."
+            );
+        }
+
+        // ---------------------------------------------------------
+        // Store the completed Entra authentication result.
+        // ---------------------------------------------------------
+
+        nativeAuthenticationResultRef.current =
+            authenticationResult;
+
+        // Also store it in nativeAuthService.
+        storeCompletedAuthenticationResult(
+            authenticationResult
+        );
+
+        console.log(
+            "Native Authentication result stored successfully."
+        );
+
+        // ---------------------------------------------------------
+        // Create the application-level Microsoft Authenticator
+        // method.
+        //
+        // IMPORTANT:
+        // activeMfaMethod must contain the METHOD OBJECT,
+        // not just the method ID.
+        // ---------------------------------------------------------
+
+        const authenticatorMethod = {
+            id:
+                APPLICATION_AUTHENTICATOR_ID,
+
+            type:
+                "application-authenticator",
+
+            challenge_type:
+                "totp",
+
+            challenge_channel:
+                "authenticator",
+
+            displayName:
+                "Microsoft Authenticator",
+
+            label:
+                "Microsoft Authenticator",
+
+            login_hint:
+                ""
+        };
+
+        // ---------------------------------------------------------
+        // Configure application MFA.
+        // ---------------------------------------------------------
+
+        setMfaMethods([
+            authenticatorMethod
+        ]);
+
+        // ---------------------------------------------------------
+        // Select Microsoft Authenticator.
+        // ---------------------------------------------------------
+
+        setSelectedMfaMethod(
+            APPLICATION_AUTHENTICATOR_ID
+        );
+
+        // ---------------------------------------------------------
+        // IMPORTANT:
+        //
+        // Store the COMPLETE METHOD OBJECT here.
+        //
+        // handleMfaSubmit() checks:
+        //
+        // activeMfaMethod?.id
+        //
+        // so activeMfaMethod must be an object.
+        // ---------------------------------------------------------
+
+        setActiveMfaMethod(
+            authenticatorMethod
+        );
+
+        // ---------------------------------------------------------
+        // Move directly to the Authenticator code screen.
+        // ---------------------------------------------------------
+
+        setCode("");
+
+        setStep(
+            "mfaCode"
+        );
+    };
+
+    // ============================================================
+    // HANDLE AUTHENTICATION COMPLETED
+    //
+    // Used by older/native Entra flows and registration flows.
+    //
+    // IMPORTANT:
+    // The application TOTP response must NEVER be passed here.
+    // ============================================================
+
+    const handleAuthenticationCompleted =
+    async (authenticationResult) => {
 
         console.log(
             "========== AUTHENTICATION COMPLETED =========="
@@ -268,6 +476,7 @@ const useNativeLogin = () => {
         );
 
         if (!authenticationResult) {
+
             console.error(
                 "No authentication result was supplied."
             );
@@ -279,7 +488,28 @@ const useNativeLogin = () => {
             return;
         }
 
-        nativeAuthenticationResultRef.current =      authenticationResult;
+        // ---------------------------------------------------------
+        // IMPORTANT:
+        //
+        // Keep the original Microsoft Entra
+        // CustomAuthAccountData object.
+        //
+        // This object provides getAccessToken().
+        // ---------------------------------------------------------
+
+        nativeAuthenticationResultRef.current =
+            authenticationResult;
+
+        // ---------------------------------------------------------
+        // Also store it in nativeAuthService.
+        //
+        // This allows other components, such as MsalDemoPage,
+        // to retrieve the same completed authentication result.
+        // ---------------------------------------------------------
+
+        storeCompletedAuthenticationResult(
+            authenticationResult
+        );
 
         console.log(
             "Native authentication result stored."
@@ -290,8 +520,115 @@ const useNativeLogin = () => {
             nativeAuthenticationResultRef.current
         );
 
-        setSuccess(true);
+        console.log(
+            "Authentication result constructor:",
+            authenticationResult?.constructor?.name
+        );
+
+        console.log(
+            "Has getAccessToken():",
+            typeof authenticationResult?.getAccessToken ===
+                "function"
+        );
+
+        setSuccess(
+            "Authentication completed successfully."
+        );
+
     };
+    // ============================================================
+    // GET ENTRA ACCESS TOKEN
+    //
+    // The application can call:
+    //
+    //     const token = await getAccessToken();
+    //
+    // The token is obtained on demand from CustomAuthAccountData.
+    //
+    // It is NOT stored in React state or localStorage.
+    // ============================================================
+
+    const getAccessToken = useCallback(
+        async () => {
+
+            const authenticationResult =
+                nativeAuthenticationResultRef.current;
+
+
+            if (!authenticationResult) {
+
+                throw new Error(
+                    "No completed Entra authentication result is available."
+                );
+
+            }
+
+
+            if (!isApplicationAuthenticated) {
+
+                throw new Error(
+                    "Application MFA has not been completed."
+                );
+
+            }
+
+
+            console.log(
+                "========== GETTING ENTRA ACCESS TOKEN =========="
+            );
+
+            console.log(
+                "Authentication result constructor:",
+                authenticationResult?.constructor?.name
+            );
+
+            console.log(
+                "Has getAccessToken:",
+                typeof authenticationResult?.getAccessToken ===
+                    "function"
+            );
+
+
+            const accessToken =
+                await getNativeAccessToken(
+                    authenticationResult
+                );
+
+
+            if (
+                !accessToken ||
+                typeof accessToken !== "string"
+            ) {
+
+                throw new Error(
+                    "Unable to obtain the Entra access token."
+                );
+
+            }
+
+
+            console.log(
+                "Entra access token obtained."
+            );
+
+            console.log(
+                "Access token type:",
+                typeof accessToken
+            );
+
+            console.log(
+                "Access token length:",
+                accessToken.length
+            );
+
+
+            return accessToken;
+
+        },
+        [
+            isApplicationAuthenticated
+        ]
+    );
 
 
     // ============================================================
@@ -348,33 +685,25 @@ const useNativeLogin = () => {
 
             switch (result.step) {
 
-                // ------------------------------------------------
-                // Password
-                // ------------------------------------------------
-
                 case "password":
 
-                    setStep("password");
+                    setStep(
+                        "password"
+                    );
 
                     break;
 
-
-                // ------------------------------------------------
-                // Existing verification code
-                // ------------------------------------------------
 
                 case "code":
 
                     setCode("");
 
-                    setStep("code");
+                    setStep(
+                        "code"
+                    );
 
                     break;
 
-
-                // ------------------------------------------------
-                // MFA method selection
-                // ------------------------------------------------
 
                 case "mfa": {
 
@@ -393,15 +722,13 @@ const useNativeLogin = () => {
 
                     setCode("");
 
-                    setStep("mfa");
+                    setStep(
+                        "mfa"
+                    );
 
                     break;
                 }
 
-
-                // ------------------------------------------------
-                // Authentication method registration
-                // ------------------------------------------------
 
                 case "authMethodRegistration":
 
@@ -409,27 +736,21 @@ const useNativeLogin = () => {
                         result.state
                     );
 
-                    setStep("registration");
-
-                    break;
-
-
-                // ------------------------------------------------
-                // Completed
-                // ------------------------------------------------
-
-                case "completed":
-
-                    handleAuthenticationCompleted(
-                        result
+                    setStep(
+                        "registration"
                     );
 
                     break;
 
 
-                // ------------------------------------------------
-                // Unexpected
-                // ------------------------------------------------
+                case "completed":
+
+                    await handlePasswordAuthenticationCompleted(
+                        result.authenticationResult
+                    );
+
+                    break;
+
 
                 default:
 
@@ -467,51 +788,16 @@ const useNativeLogin = () => {
 
     // ============================================================
     // BUILD CUSTOM MFA METHODS
+    //
+    // Current application flow:
+    //
+    // Microsoft Authenticator TOTP only.
+    //
+    // Native Entra SMS/email remains implemented in the service
+    // and can be re-enabled later.
     // ============================================================
 
-    const buildCustomMfaMethods = (entraMethods) => {
-
-        const methods =
-            Array.isArray(entraMethods)
-                ? entraMethods
-                : [];
-
-
-        console.log(
-            "========== BUILDING CUSTOM MFA METHODS =========="
-        );
-
-        console.log(
-            "Entra MFA methods:",
-            methods
-        );
-
-
-        // --------------------------------------------------------
-        // Find Entra SMS
-        // --------------------------------------------------------
-
-        const smsMethod =
-            methods.find(
-                (method) =>
-                    method?.challenge_channel === "sms"
-            );
-
-
-        // --------------------------------------------------------
-        // Find Entra Email
-        // --------------------------------------------------------
-
-        const emailMethod =
-            methods.find(
-                (method) =>
-                    method?.challenge_channel === "email"
-            );
-
-
-        // --------------------------------------------------------
-        // Application Microsoft Authenticator
-        // --------------------------------------------------------
+    const buildCustomMfaMethods = () => {
 
         const authenticatorMethod = {
 
@@ -529,62 +815,20 @@ const useNativeLogin = () => {
         };
 
 
-        // --------------------------------------------------------
-        // Build the three options
-        // --------------------------------------------------------
-
-        const customMethods = [
-            authenticatorMethod
-        ];
-
-
-        if (smsMethod) {
-
-            customMethods.push(
-                smsMethod
-            );
-
-        }
-
-
-        if (emailMethod) {
-
-            customMethods.push(
-                emailMethod
-            );
-
-        }
-
-
         console.log(
             "========== CUSTOM MFA METHODS =========="
         );
 
-        customMethods.forEach(
-            (method, index) => {
-
-                console.log(
-                    `Custom MFA method ${index + 1}:`,
-                    {
-                        id:
-                            method?.id,
-
-                        challenge_type:
-                            method?.challenge_type,
-
-                        challenge_channel:
-                            method?.challenge_channel,
-
-                        login_hint:
-                            method?.login_hint
-                    }
-                );
-
-            }
+        console.log(
+            "Application MFA method:",
+            authenticatorMethod
         );
 
 
-        return customMethods;
+        return [
+            authenticatorMethod
+        ];
+
     };
 
 
@@ -631,10 +875,6 @@ const useNativeLogin = () => {
 
             if (!result?.success) {
 
-                // ------------------------------------------------
-                // Password expired
-                // ------------------------------------------------
-
                 if (
                     result?.step ===
                     "passwordExpired"
@@ -658,10 +898,6 @@ const useNativeLogin = () => {
 
 
             switch (result.step) {
-
-                // ------------------------------------------------
-                // MFA method selection
-                // ------------------------------------------------
 
                 case "mfa": {
 
@@ -693,9 +929,7 @@ const useNativeLogin = () => {
                         null
                     );
 
-                    setCode(
-                        ""
-                    );
+                    setCode("");
 
                     setStep(
                         "mfa"
@@ -705,22 +939,16 @@ const useNativeLogin = () => {
                 }
 
 
-                // ------------------------------------------------
-                // Existing verification code
-                // ------------------------------------------------
-
                 case "code":
 
                     setCode("");
 
-                    setStep("code");
+                    setStep(
+                        "code"
+                    );
 
                     break;
 
-
-                // ------------------------------------------------
-                // MFA registration
-                // ------------------------------------------------
 
                 case "authMethodRegistration":
 
@@ -735,22 +963,14 @@ const useNativeLogin = () => {
                     break;
 
 
-                // ------------------------------------------------
-                // Completed
-                // ------------------------------------------------
-
                 case "completed":
 
-                    handleAuthenticationCompleted(
-                        result
+                    await handlePasswordAuthenticationCompleted(
+                        result.authenticationResult
                     );
 
                     break;
 
-
-                // ------------------------------------------------
-                // Password expired
-                // ------------------------------------------------
 
                 case "passwordExpired":
 
@@ -760,10 +980,6 @@ const useNativeLogin = () => {
 
                     break;
 
-
-                // ------------------------------------------------
-                // Unexpected
-                // ------------------------------------------------
 
                 default:
 
@@ -812,10 +1028,6 @@ const useNativeLogin = () => {
 
         try {
 
-            // ----------------------------------------------------
-            // Make sure a method was selected
-            // ----------------------------------------------------
-
             if (!selectedMfaMethod) {
 
                 setError(
@@ -831,10 +1043,6 @@ const useNativeLogin = () => {
                 selectedMfaMethod
             );
 
-
-            // ----------------------------------------------------
-            // Find selected method
-            // ----------------------------------------------------
 
             const selectedMethod =
                 mfaMethods.find(
@@ -864,9 +1072,12 @@ const useNativeLogin = () => {
             // APPLICATION AUTHENTICATOR
             // ----------------------------------------------------
 
-            if (selectedMethod.id ===  APPLICATION_AUTHENTICATOR_ID) {
+            if (
+                selectedMethod.id ===
+                APPLICATION_AUTHENTICATOR_ID
+            ) {
 
-               console.log(
+                console.log(
                     "========== AUTHENTICATOR SELECTION =========="
                 );
 
@@ -875,12 +1086,9 @@ const useNativeLogin = () => {
                     nativeAuthenticationResultRef.current
                 );
 
-                console.log(
-                    "Selected MFA method:",
+                setActiveMfaMethod(
                     selectedMethod
                 );
-
-                setActiveMfaMethod(selectedMethod);
 
                 setCode("");
 
@@ -903,11 +1111,6 @@ const useNativeLogin = () => {
 
             console.log(
                 "========== REQUESTING ENTRA MFA CHALLENGE =========="
-            );
-
-            console.log(
-                "Challenge method:",
-                selectedMethod
             );
 
 
@@ -934,10 +1137,6 @@ const useNativeLogin = () => {
             }
 
 
-            // ----------------------------------------------------
-            // Challenge requires code
-            // ----------------------------------------------------
-
             if (
                 challengeResult.step ===
                 "mfaCode"
@@ -953,26 +1152,19 @@ const useNativeLogin = () => {
             }
 
 
-            // ----------------------------------------------------
-            // Authentication completed
-            // ----------------------------------------------------
-
             if (
                 challengeResult.step ===
                 "completed"
             ) {
 
-                handleAuthenticationCompleted(
+                await handleAuthenticationCompleted(
+                    challengeResult.authenticationResult ||
                     challengeResult
                 );
 
                 return;
             }
 
-
-            // ----------------------------------------------------
-            // Still waiting for MFA
-            // ----------------------------------------------------
 
             if (
                 challengeResult.step ===
@@ -986,10 +1178,6 @@ const useNativeLogin = () => {
                 return;
             }
 
-
-            // ----------------------------------------------------
-            // Unexpected result
-            // ----------------------------------------------------
 
             setError(
                 challengeResult?.message ||
@@ -1018,212 +1206,434 @@ const useNativeLogin = () => {
 
     };
 
-        // ============================================================
+
+    // ============================================================
     // APPLICATION MFA / MICROSOFT AUTHENTICATOR
     // ============================================================
 
-    const verifyApplicationAuthenticator =    async (enteredCode) => {
+    const verifyApplicationAuthenticator =
+        async (enteredCode) => {
 
-        console.log(
-            "========== VERIFYING APPLICATION AUTHENTICATOR =========="
-        );
+            console.log(
+                "========== VERIFYING APPLICATION AUTHENTICATOR =========="
+            );
 
-        try {
 
-            const authenticationResult = nativeAuthenticationResultRef.current;
+            try {
 
-            if (!authenticationResult) {
+                // ------------------------------------------------
+                // Get ORIGINAL completed Entra result.
+                // ------------------------------------------------
 
-                throw new Error(
-                    "No completed native authentication result is available."
+                const authenticationResult =
+                    nativeAuthenticationResultRef.current;
+
+
+                if (!authenticationResult) {
+
+                    throw new Error(
+                        "No completed native authentication result is available."
+                    );
+
+                }
+
+
+                console.log(
+                    "Using stored native authentication result."
                 );
 
-            }
-
-            console.log(
-                "Using stored native authentication result."
-            );
-
-            console.log(
-                "Authentication result constructor:",
-                authenticationResult?.constructor?.name
-            );
-
-            const accessToken =  await getNativeAccessToken(authenticationResult);
-
-            if (!accessToken) {
-
-                throw new Error(
-                    "Unable to obtain the Entra access token."
+                console.log(
+                    "Authentication result constructor:",
+                    authenticationResult?.constructor?.name
                 );
 
-            }
-
-            console.log(
-                "Native access token acquired."
-            );
-
-            // The rest of your existing fetch code follows...
-            // ----------------------------------------------------
-            // Call existing application MFA endpoint
-            // ----------------------------------------------------
-
-            const response = await fetch("https://localhost:7290/api/mfa/verify",
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-
-                            "Authorization":
-                                `Bearer ${accessToken}`
-                        },
-
-                        credentials: "include",
-
-                        body: JSON.stringify({
-                            code: enteredCode
-                        })
-                    }
+                console.log(
+                    "Has getAccessToken:",
+                    typeof authenticationResult?.getAccessToken ===
+                        "function"
                 );
 
 
-            console.log(
-                "Application MFA HTTP status:",
-                response.status
-            );
+                // ------------------------------------------------
+                // Obtain Entra access token.
+                // ------------------------------------------------
 
-
-            // ----------------------------------------------------
-            // Read response safely
-            // ----------------------------------------------------
-
-            let responseBody = null;
-
-            const contentType =
-                response.headers.get(
-                    "content-type"
+                console.log(
+                    "========== REQUESTING ENTRA ACCESS TOKEN =========="
                 );
 
 
-            if (
-                contentType &&
-                contentType.includes(
-                    "application/json"
-                )
-            ) {
-
-                responseBody =
-                    await response.json();
-
-            }
-            else {
-
-                responseBody =
-                    await response.text();
-
-            }
+                const accessToken =
+                    await getNativeAccessToken(
+                        authenticationResult
+                    );
 
 
-            console.log(
-                "Application MFA response:",
-                responseBody
-            );
+                if (!accessToken) {
+
+                    throw new Error(
+                        "Unable to obtain the Entra access token."
+                    );
+
+                }
 
 
-            // ----------------------------------------------------
-            // Invalid TOTP
-            // ----------------------------------------------------
+                console.log(
+                    "Native access token acquired."
+                );
 
-            if (!response.ok) {
+                console.log(
+                    "Access token type:",
+                    typeof accessToken
+                );
 
-                let message =
-                    "The Microsoft Authenticator code is invalid.";
+                console.log(
+                    "Access token length:",
+                    typeof accessToken === "string"
+                        ? accessToken.length
+                        : "not-string"
+                );
+
+
+                // ------------------------------------------------
+                // Call application MFA endpoint.
+                //
+                // The bearer token proves Entra authentication.
+                //
+                // credentials: include allows the API to establish
+                // the application mfa_session cookie.
+                // ------------------------------------------------
+
+                console.log(
+                    "========== CALLING APPLICATION MFA API =========="
+                );
+
+                console.log(
+                    "URL:",
+                    "https://localhost:7290/api/mfa/verify"
+                );
+
+                console.log(
+                    "Entered code length:",
+                    enteredCode?.length
+                );
+
+
+                const response =
+                    await fetch(
+                        "https://localhost:7290/api/mfa/verify",
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json",
+
+                                "Authorization":
+                                    `Bearer ${accessToken}`
+                            },
+
+                            credentials: "include",
+
+                            body: JSON.stringify({
+                                code: enteredCode
+                            })
+                        }
+                    );
+
+
+                console.log(
+                    "========== APPLICATION MFA API RESPONSE =========="
+                );
+
+                console.log(
+                    "HTTP status:",
+                    response.status
+                );
+
+                console.log(
+                    "HTTP status text:",
+                    response.statusText
+                );
+
+                console.log(
+                    "Response OK:",
+                    response.ok
+                );
+
+                console.log(
+                    "Response URL:",
+                    response.url
+                );
+
+                console.log(
+                    "Content-Type:",
+                    response.headers.get("content-type")
+                );
+
+
+                // ------------------------------------------------
+                // Read response safely.
+                // ------------------------------------------------
+
+                let responseBody = null;
+
+                const contentType =
+                    response.headers.get(
+                        "content-type"
+                    );
+
 
                 if (
-                    typeof responseBody ===
-                    "string" &&
-                    responseBody.trim()
+                    contentType &&
+                    contentType.includes(
+                        "application/json"
+                    )
                 ) {
 
-                    message =
-                        responseBody;
+                    try {
+
+                        responseBody =
+                            await response.json();
+
+                    }
+                    catch (jsonError) {
+
+                        console.error(
+                            "Unable to parse JSON response:",
+                            jsonError
+                        );
+
+                    }
 
                 }
-                else if (
-                    responseBody?.message
-                ) {
+                else {
 
-                    message =
-                        responseBody.message;
+                    try {
+
+                        responseBody =
+                            await response.text();
+
+                    }
+                    catch (textError) {
+
+                        console.error(
+                            "Unable to read text response:",
+                            textError
+                        );
+
+                    }
 
                 }
+
+
+                console.log(
+                    "Application MFA response body:",
+                    responseBody
+                );
+
+
+                // ------------------------------------------------
+                // Response headers
+                // ------------------------------------------------
+
+                try {
+
+                    const responseHeaders = {};
+
+                    response.headers.forEach(
+                        (value, key) => {
+
+                            responseHeaders[key] =
+                                value;
+
+                        }
+                    );
+
+                    console.log(
+                        "Application MFA response headers:",
+                        responseHeaders
+                    );
+
+                }
+                catch (headerError) {
+
+                    console.error(
+                        "Unable to inspect response headers:",
+                        headerError
+                    );
+
+                }
+
+
+                // ------------------------------------------------
+                // Non-success response.
+                // ------------------------------------------------
+
+                if (!response.ok) {
+
+                    let message =
+                        "The Microsoft Authenticator code is invalid.";
+
+
+                    if (
+                        typeof responseBody ===
+                        "string" &&
+                        responseBody.trim()
+                    ) {
+
+                        message =
+                            responseBody;
+
+                    }
+                    else if (
+                        responseBody?.message
+                    ) {
+
+                        message =
+                            responseBody.message;
+
+                    }
+                    else if (
+                        responseBody?.error
+                    ) {
+
+                        message =
+                            responseBody.error;
+
+                    }
+                    else if (
+                        responseBody?.title
+                    ) {
+
+                        message =
+                            responseBody.title;
+
+                    }
+
+
+                    console.error(
+                        "========== APPLICATION MFA FAILED =========="
+                    );
+
+                    console.error(
+                        "HTTP status:",
+                        response.status
+                    );
+
+                    console.error(
+                        "Response body:",
+                        responseBody
+                    );
+
+
+                    return {
+                        success: false,
+                        message
+                    };
+
+                }
+
+
+                // ------------------------------------------------
+                // Successful TOTP verification.
+                //
+                // IMPORTANT:
+                //
+                // responseBody is ONLY the application MFA
+                // response.
+                //
+                // It is NOT an Entra authentication result.
+                //
+                // nativeAuthenticationResultRef remains untouched.
+                // ------------------------------------------------
+
+                console.log(
+                    "========== APPLICATION MFA SUCCESS =========="
+                );
+
+                console.log(
+                    "TOTP verification succeeded."
+                );
+
+                console.log(
+                    "API response:",
+                    responseBody
+                );
 
 
                 return {
-                    success: false,
-                    message
+
+                    success:
+                        true,
+
+                    message:
+                        responseBody?.message ||
+                        "MFA verification successful."
+
                 };
+
+            }
+            catch (err) {
+
+                console.error(
+                    "========== APPLICATION AUTHENTICATOR ERROR =========="
+                );
+
+                console.error(
+                    "Error:",
+                    err
+                );
+
+                console.error(
+                    "Error message:",
+                    err?.message
+                );
+
+                console.error(
+                    "Error name:",
+                    err?.name
+                );
+
+
+                return {
+
+                    success:
+                        false,
+
+                    message:
+                        getErrorMessage(err) ||
+                        "Unable to verify Microsoft Authenticator code."
+
+                };
+
             }
 
+        };
 
-            // ----------------------------------------------------
-            // Successful TOTP verification
-            // ----------------------------------------------------
 
-            return {
-                success: true,
-
-                message:
-                    responseBody?.message ||
-                    "MFA verification successful."
-            };
-
-        }
-        catch (err) {
-
-            console.error(
-                "Application Authenticator verification error:",
-                err
-            );
-
-            return {
-                success: false,
-
-                message:
-                    getErrorMessage(err) ||
-                    "Unable to verify Microsoft Authenticator code."
-            };
-        }
-    };
-    
     // ============================================================
-    // NATIVE MFA CODE SUBMISSION
+    // MFA CODE SUBMISSION
     // ============================================================
 
     const handleMfaSubmit = async (event) => {
 
         if (
             event &&
-            typeof event.preventDefault === "function"
+            typeof event.preventDefault ===
+            "function"
         ) {
-
             event.preventDefault();
-
         }
-
 
         clearMessages();
 
         setLoading(true);
 
-
         try {
 
             const enteredCode =
                 code.trim();
-
 
             if (!enteredCode) {
 
@@ -1234,13 +1644,40 @@ const useNativeLogin = () => {
                 return;
             }
 
+            // ====================================================
+            // DETERMINE ACTIVE MFA METHOD
+            // ====================================================
+
+            const activeMfaMethodId =
+                activeMfaMethod?.id ||
+                selectedMfaMethod;
+
+            console.log(
+                "========== MFA CODE SUBMISSION =========="
+            );
+
+            console.log(
+                "Active MFA method:",
+                activeMfaMethod
+            );
+
+            console.log(
+                "Active MFA method ID:",
+                activeMfaMethodId
+            );
+
+            console.log(
+                "Selected MFA method:",
+                selectedMfaMethod
+            );
 
             // ====================================================
             // APPLICATION AUTHENTICATOR / TOTP
             // ====================================================
 
             if (
-                activeMfaMethod?.id ===     APPLICATION_AUTHENTICATOR_ID
+                activeMfaMethodId ===
+                APPLICATION_AUTHENTICATOR_ID
             ) {
 
                 console.log(
@@ -1251,18 +1688,15 @@ const useNativeLogin = () => {
                     "Submitting Microsoft Authenticator code."
                 );
 
-
                 const result =
                     await verifyApplicationAuthenticator(
                         enteredCode
                     );
 
-
                 console.log(
                     "Application Authenticator result:",
                     result
                 );
-
 
                 if (!result?.success) {
 
@@ -1274,63 +1708,60 @@ const useNativeLogin = () => {
                     return;
                 }
 
-
                 // ------------------------------------------------
-                // TOTP verified
+                // Both authentication factors are now complete:
+                //
+                // 1. Entra password authentication
+                // 2. Application Microsoft Authenticator TOTP
                 // ------------------------------------------------
 
                 console.log(
                     "========== APPLICATION MFA SUCCESS =========="
                 );
 
+                console.log(
+                    "Application authentication is now complete."
+                );
+
+                console.log(
+                    "Original Entra authentication result remains stored:",
+                    nativeAuthenticationResultRef.current
+                );
 
                 setCode("");
 
+                setIsApplicationAuthenticated(
+                    true
+                );
 
                 setSuccess(
                     result?.message ||
                     "MFA verification successful."
                 );
 
-
-                /*
-                 * The API has now:
-                 *
-                 * 1. Validated the TOTP
-                 * 2. Updated LastUsedUtc
-                 * 3. Created an application MFA session
-                 * 4. Set the HttpOnly mfa_session cookie
-                 *
-                 * Do NOT call submitMfaChallenge() here.
-                 *
-                 * This Authenticator code belongs to the
-                 * application's TOTP service, not the native
-                 * Entra SMS/email challenge.
-                 */
-
-                await handleAuthenticationCompleted(
-                    result
+                setStep(
+                    "authenticated"
                 );
-
 
                 return;
             }
-
 
             // ====================================================
             // EXISTING ENTRA SMS / EMAIL
             // ====================================================
 
             console.log(
-                "Submitting native MFA challenge code."
+                "========== ENTRA SMS / EMAIL MFA =========="
             );
 
+            console.log(
+                "Submitting native MFA challenge code."
+            );
 
             const result =
                 await submitMfaChallenge(
                     enteredCode
                 );
-
 
             console.log(
                 "========== MFA SUBMIT RESULT =========="
@@ -1339,11 +1770,6 @@ const useNativeLogin = () => {
             console.log(
                 "Full MFA submit result:",
                 result
-            );
-
-            console.log(
-                "Result constructor:",
-                result?.constructor?.name
             );
 
             console.log(
@@ -1356,46 +1782,7 @@ const useNativeLogin = () => {
                 result?.success
             );
 
-            console.log(
-                "Result message:",
-                result?.message
-            );
-
-            console.log(
-                "Result error:",
-                result?.error
-            );
-
-            console.log(
-                "Result errorDescription:",
-                result?.errorDescription
-            );
-
-            console.log(
-                "Result errorCode:",
-                result?.errorCode
-            );
-
-            console.log(
-                "Result state:",
-                result?.state
-            );
-
-            console.log(
-                "Result state constructor:",
-                result?.state?.constructor?.name
-            );
-
-            console.log(
-                "========================================"
-            );
-
-
             if (!result?.success) {
-
-                // ------------------------------------------------
-                // Password expired
-                // ------------------------------------------------
 
                 if (
                     result?.step ===
@@ -1409,7 +1796,6 @@ const useNativeLogin = () => {
                     return;
                 }
 
-
                 setError(
                     result?.message ||
                     "MFA verification failed."
@@ -1418,25 +1804,16 @@ const useNativeLogin = () => {
                 return;
             }
 
-
             switch (result.step) {
-
-                // ------------------------------------------------
-                // Completed
-                // ------------------------------------------------
 
                 case "completed":
 
-                    handleAuthenticationCompleted(
+                    await handleAuthenticationCompleted(
+                        result.authenticationResult ||
                         result
                     );
 
                     break;
-
-
-                // ------------------------------------------------
-                // Another MFA method selection required
-                // ------------------------------------------------
 
                 case "mfa":
 
@@ -1448,11 +1825,6 @@ const useNativeLogin = () => {
 
                     break;
 
-
-                // ------------------------------------------------
-                // Another MFA code required
-                // ------------------------------------------------
-
                 case "mfaCode":
 
                     setCode("");
@@ -1463,11 +1835,6 @@ const useNativeLogin = () => {
 
                     break;
 
-
-                // ------------------------------------------------
-                // Password expired
-                // ------------------------------------------------
-
                 case "passwordExpired":
 
                     setStep(
@@ -1475,11 +1842,6 @@ const useNativeLogin = () => {
                     );
 
                     break;
-
-
-                // ------------------------------------------------
-                // Unexpected
-                // ------------------------------------------------
 
                 default:
 
@@ -1489,7 +1851,6 @@ const useNativeLogin = () => {
                     );
 
                     break;
-
             }
 
         }
@@ -1585,19 +1946,13 @@ const useNativeLogin = () => {
 
             switch (result.step) {
 
-                // ------------------------------------------------
-                // Verification required
-                // ------------------------------------------------
-
                 case "verificationRequired":
 
                     setRegistrationState(
                         result.state
                     );
 
-                    setRegistrationCode(
-                        ""
-                    );
+                    setRegistrationCode("");
 
                     setStep(
                         "registration-code"
@@ -1610,22 +1965,15 @@ const useNativeLogin = () => {
                     break;
 
 
-                // ------------------------------------------------
-                // Completed
-                // ------------------------------------------------
-
                 case "completed":
 
-                    handleAuthenticationCompleted(
+                    await handleAuthenticationCompleted(
+                        result.authenticationResult ||
                         result
                     );
 
                     break;
 
-
-                // ------------------------------------------------
-                // Unexpected
-                // ------------------------------------------------
 
                 default:
 
@@ -1724,7 +2072,8 @@ const useNativeLogin = () => {
 
                     case "completed":
 
-                        handleAuthenticationCompleted(
+                        await handleAuthenticationCompleted(
+                            result.authenticationResult ||
                             result
                         );
 
@@ -1819,22 +2168,15 @@ const useNativeLogin = () => {
 
             switch (result.step) {
 
-                // ------------------------------------------------
-                // Completed
-                // ------------------------------------------------
-
                 case "completed":
 
-                    handleAuthenticationCompleted(
+                    await handleAuthenticationCompleted(
+                        result.authenticationResult ||
                         result
                     );
 
                     break;
 
-
-                // ------------------------------------------------
-                // MFA
-                // ------------------------------------------------
 
                 case "mfa": {
 
@@ -1859,10 +2201,6 @@ const useNativeLogin = () => {
                 }
 
 
-                // ------------------------------------------------
-                // Another code required
-                // ------------------------------------------------
-
                 case "code":
 
                     setCode("");
@@ -1873,10 +2211,6 @@ const useNativeLogin = () => {
 
                     break;
 
-
-                // ------------------------------------------------
-                // Unexpected
-                // ------------------------------------------------
 
                 default:
 
@@ -1924,6 +2258,25 @@ const useNativeLogin = () => {
         switch (step) {
 
             // ----------------------------------------------------
+            // Authenticated → MFA code
+            // ----------------------------------------------------
+
+            case "authenticated":
+
+                setIsApplicationAuthenticated(
+                    false
+                );
+
+                setCode("");
+
+                setStep(
+                    "mfaCode"
+                );
+
+                break;
+
+
+            // ----------------------------------------------------
             // MFA code → MFA method selection
             // ----------------------------------------------------
 
@@ -1952,7 +2305,16 @@ const useNativeLogin = () => {
 
                 setMfaMethods([]);
 
+                setIsApplicationAuthenticated(
+                    false
+                );
+
                 clearSignInState();
+
+                clearCompletedAuthenticationResult();
+
+                nativeAuthenticationResultRef.current =
+                    null;
 
                 setStep(
                     "email"
@@ -1969,7 +2331,16 @@ const useNativeLogin = () => {
 
                 setPassword("");
 
+                setIsApplicationAuthenticated(
+                    false
+                );
+
                 clearSignInState();
+
+                clearCompletedAuthenticationResult();
+
+                nativeAuthenticationResultRef.current =
+                    null;
 
                 setStep(
                     "email"
@@ -1999,27 +2370,26 @@ const useNativeLogin = () => {
 
             case "registration":
 
-                setRegistrationState(
-                    null
-                );
+                setRegistrationState(null);
 
-                setRegistrationMethods(
-                    []
-                );
+                setRegistrationMethods([]);
 
-                setSelectedRegistrationMethod(
-                    ""
-                );
+                setSelectedRegistrationMethod("");
 
-                setRegistrationContact(
-                    ""
-                );
+                setRegistrationContact("");
 
-                setRegistrationCode(
-                    ""
+                setRegistrationCode("");
+
+                setIsApplicationAuthenticated(
+                    false
                 );
 
                 clearSignInState();
+
+                clearCompletedAuthenticationResult();
+
+                nativeAuthenticationResultRef.current =
+                    null;
 
                 setStep(
                     "email"
@@ -2057,6 +2427,86 @@ const useNativeLogin = () => {
 
 
     // ============================================================
+    // CLEAR APPLICATION AUTHENTICATION
+    //
+    // Use this from logout.
+    //
+    // This clears:
+    //
+    // 1. React authentication state
+    // 2. Local Entra authentication reference
+    // 3. Service-level CustomAuthAccountData
+    // 4. Native sign-in state
+    //
+    // The API-side mfa_session cookie should also be cleared by
+    // your logout/session endpoint if you have one.
+    // ============================================================
+
+    const clearApplicationAuthentication = useCallback(
+        () => {
+
+            console.log(
+                "========== CLEARING APPLICATION AUTHENTICATION =========="
+            );
+
+
+            // ----------------------------------------------------
+            // Clear local authentication reference.
+            // ----------------------------------------------------
+
+            nativeAuthenticationResultRef.current =
+                null;
+
+
+            // ----------------------------------------------------
+            // Clear service-level authentication reference.
+            // ----------------------------------------------------
+
+            clearCompletedAuthenticationResult();
+
+
+            // ----------------------------------------------------
+            // Clear native sign-in state.
+            // ----------------------------------------------------
+
+            clearSignInState();
+
+
+            // ----------------------------------------------------
+            // Clear React authentication state.
+            // ----------------------------------------------------
+
+            setIsApplicationAuthenticated(
+                false
+            );
+
+            setUsername("");
+
+            setPassword("");
+
+            setCode("");
+
+            setMfaMethods([]);
+
+            setSelectedMfaMethod("");
+
+            setActiveMfaMethod(null);
+
+            setSuccess("");
+
+            setError("");
+
+
+            setStep(
+                "email"
+            );
+
+        },
+        []
+    );
+
+
+    // ============================================================
     // RETURN LOGIN STATE AND HANDLERS
     // ============================================================
 
@@ -2065,103 +2515,68 @@ const useNativeLogin = () => {
         // --------------------------------------------------------
         // Authentication state
         // --------------------------------------------------------
-
         username,
         setUsername,
-
         password,
         setPassword,
-
         code,
         setCode,
-
-
+        // --------------------------------------------------------
+        // APPLICATION AUTHENTICATION
+        // --------------------------------------------------------
+        isApplicationAuthenticated,
+        getAccessToken,
+        callApi,
+        clearApplicationAuthentication,
         // --------------------------------------------------------
         // Native MFA state
         // --------------------------------------------------------
-
         mfaMethods,
-
         activeMfaMethod,
-
         selectedMfaMethod,
-
         setSelectedMfaMethod,
-
-
         // --------------------------------------------------------
         // Registration state
         // --------------------------------------------------------
-
         registrationMethods,
-
         selectedRegistrationMethod,
-
         setSelectedRegistrationMethod,
-
         registrationContact,
-
         setRegistrationContact,
-
         registrationCode,
-
         setRegistrationCode,
-
-
         // --------------------------------------------------------
         // UI state
         // --------------------------------------------------------
-
         step,
-
         loading,
-
         error,
-
         success,
-
         showPassword,
-
         setShowPassword,
-
         remember,
-
         setRemember,
-
-
         // --------------------------------------------------------
         // Authentication handlers
         // --------------------------------------------------------
-
         handleEmailSubmit,
-
         handlePasswordSubmit,
-
         handleMfaMethodSubmit,
-
         handleMfaSubmit,
-
         handleCodeSubmit,
-
-
         // --------------------------------------------------------
         // Registration handlers
         // --------------------------------------------------------
-
         handleRegistrationSubmit,
-
         handleRegistrationCodeSubmit,
-
-
         // --------------------------------------------------------
         // Navigation
         // --------------------------------------------------------
-
         handleBack
-
     };
 
 };
 
 
 export default useNativeLogin;
+
