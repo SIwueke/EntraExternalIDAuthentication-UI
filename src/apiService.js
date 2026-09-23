@@ -3,6 +3,27 @@ import axios from "axios";
 const API_BASE_URL = "https://localhost:7290";
 
 // ============================================================
+// AUTHENTICATED REQUEST CONFIG
+// ============================================================
+
+const authenticatedConfig = (token) => {
+
+    if (!token) {
+        throw new Error(
+            "No access token was supplied."
+        );
+    }
+
+    return {
+        headers: {
+            Authorization: `Bearer ${token}`
+        },
+        withCredentials: true
+    };
+};
+
+
+// ============================================================
 // PUBLIC API
 // ============================================================
 
@@ -26,12 +47,7 @@ export const getMfaStatus = async (token) => {
     const response =
         await axios.get(
             `${API_BASE_URL}/api/mfa/status`,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                },
-                withCredentials: true
-            }
+            authenticatedConfig(token)
         );
 
     return response.data;
@@ -53,12 +69,7 @@ export const verifyMfa = async (
             {
                 code
             },
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                },
-                withCredentials: true
-            }
+            authenticatedConfig(token)
         );
 
     return response.data;
@@ -69,23 +80,6 @@ export const verifyMfa = async (
 // SECURE API
 // ============================================================
 
-// export const getSecureData = async (token) => {
-
-//     const response =
-//         await axios.get(
-//             `${API_BASE_URL}/api/secure`,
-//             {
-//                 headers: {
-//                     Authorization: `Bearer ${token}`
-//                 },
-//                 withCredentials: true
-//             }
-//         );
-
-//     return response.data;
-// };
-
-//Tem
 export const getSecureData = async (token) => {
 
     console.log(
@@ -101,16 +95,13 @@ export const getSecureData = async (token) => {
     const response =
         await axios.get(
             `${API_BASE_URL}/api/secure`,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                },
-                withCredentials: true
-            }
+            authenticatedConfig(token)
         );
 
     return response.data;
 };
+
+
 // ============================================================
 // MY CLAIMS API
 // ============================================================
@@ -120,13 +111,38 @@ export const getMe = async (token) => {
     const response =
         await axios.get(
             `${API_BASE_URL}/api/me`,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                },
-                withCredentials: true
-            }
+            authenticatedConfig(token)
         );
+
+    return response.data;
+};
+
+
+// ============================================================
+// GENERIC PROTECTED API
+// ============================================================
+
+export const callProtectedApi = async (
+    token,
+    url,
+    options = {}
+) => {
+
+    if (!token) {
+        throw new Error(
+            "No access token was supplied."
+        );
+    }
+
+    const response = await axios({
+        url: `${API_BASE_URL}${url}`,
+        ...options,
+        headers: {
+            ...(options.headers || {}),
+            Authorization: `Bearer ${token}`
+        },
+        withCredentials: true
+    });
 
     return response.data;
 };

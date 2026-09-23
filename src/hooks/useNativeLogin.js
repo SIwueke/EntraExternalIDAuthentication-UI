@@ -157,26 +157,7 @@ const useNativeLogin = () => {
             "Unable to sign in."
         );
     };
-
-    const callApi = async (url, options = {}) => {
-        const authenticationResult =
-            nativeAuthenticationResultRef.current;
-
-        if (!authenticationResult) {
-            throw new Error(
-            "No completed authentication result is available."
-            );
-        }
-
-        if (!isApplicationAuthenticated) {
-            throw new Error(
-            "Application MFA has not been completed."
-            );
-        }
-
-        return callProtectedApi(authenticationResult,url,   options
-        );
-    };
+    
     // ============================================================
     // CLEAR MESSAGES
     // ============================================================
@@ -548,87 +529,93 @@ const useNativeLogin = () => {
     // It is NOT stored in React state or localStorage.
     // ============================================================
 
-    const getAccessToken = useCallback(
-        async () => {
+    // ============================================================
+// GET ENTRA ACCESS TOKEN
+// ============================================================
 
-            const authenticationResult =
-                nativeAuthenticationResultRef.current;
+const getAccessToken = useCallback(async () => {
 
+    const authenticationResult =
+        nativeAuthenticationResultRef.current;
 
-            if (!authenticationResult) {
+    if (!authenticationResult) {
 
-                throw new Error(
-                    "No completed Entra authentication result is available."
-                );
+        throw new Error(
+            "No completed Entra authentication result is available."
+        );
+    }
 
-            }
+    if (!isApplicationAuthenticated) {
 
+        throw new Error(
+            "Application MFA has not been completed."
+        );
+    }
 
-            if (!isApplicationAuthenticated) {
+    const accessToken =
+        await getNativeAccessToken(
+            authenticationResult
+        );
 
-                throw new Error(
-                    "Application MFA has not been completed."
-                );
+    if (
+        !accessToken ||
+        typeof accessToken !== "string"
+    ) {
 
-            }
+        throw new Error(
+            "Unable to obtain the Entra access token."
+        );
+    }
 
-
-            console.log(
-                "========== GETTING ENTRA ACCESS TOKEN =========="
-            );
-
-            console.log(
-                "Authentication result constructor:",
-                authenticationResult?.constructor?.name
-            );
-
-            console.log(
-                "Has getAccessToken:",
-                typeof authenticationResult?.getAccessToken ===
-                    "function"
-            );
-
-
-            const accessToken =
-                await getNativeAccessToken(
-                    authenticationResult
-                );
-
-
-            if (
-                !accessToken ||
-                typeof accessToken !== "string"
-            ) {
-
-                throw new Error(
-                    "Unable to obtain the Entra access token."
-                );
-
-            }
-
-
-            console.log(
-                "Entra access token obtained."
-            );
-
-            console.log(
-                "Access token type:",
-                typeof accessToken
-            );
-
-            console.log(
-                "Access token length:",
-                accessToken.length
-            );
-
-
-            return accessToken;
-
-        },
-        [
-            isApplicationAuthenticated
-        ]
+    console.log(
+        "Entra access token obtained."
     );
+
+    console.log(
+        "Access token type:",
+        typeof accessToken
+    );
+
+    console.log(
+        "Access token length:",
+        accessToken.length
+    );
+
+    return accessToken;
+
+}, [
+    isApplicationAuthenticated
+]);
+
+
+// ============================================================
+// GENERIC PROTECTED API
+// ============================================================
+
+const callApi = useCallback(
+    async (url, options = {}) => {
+
+        if (!isApplicationAuthenticated) {
+
+            throw new Error(
+                "Application MFA has not been completed."
+            );
+        }
+
+        const accessToken =
+            await getAccessToken();
+
+        return callProtectedApi(
+            accessToken,
+            url,
+            options
+        );
+    },
+    [
+        getAccessToken,
+        isApplicationAuthenticated
+    ]
+);
 
 
     // ============================================================
