@@ -15,11 +15,43 @@ const LoginEmailStep = ({
     primaryButtonSx
 }) => {
 
+    const handleSubmit = (event) => {
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        console.log(
+            "========== LOGIN EMAIL FORM SUBMITTED =========="
+        );
+
+        console.log(
+            "Username:",
+            username
+        );
+
+        console.log(
+            "handleEmailSubmit:",
+            handleEmailSubmit
+        );
+
+        if (typeof handleEmailSubmit !== "function") {
+
+            console.error(
+                "handleEmailSubmit is not a function."
+            );
+
+            return;
+        }
+
+        handleEmailSubmit(event);
+    };
+
+
     return (
 
         <Box
             component="form"
-            onSubmit={handleEmailSubmit}
+            onSubmit={handleSubmit}
         >
 
             <Typography
@@ -73,9 +105,7 @@ const LoginEmailStep = ({
             </Button>
 
         </Box>
-
     );
-
 };
 
 

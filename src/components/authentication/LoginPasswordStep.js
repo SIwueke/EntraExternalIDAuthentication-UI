@@ -29,12 +29,69 @@ const LoginPasswordStep = ({
     backButtonSx
 }) => {
 
+    // ============================================================
+    // EXPLICIT PASSWORD FORM SUBMIT HANDLER
+    //
+    // We deliberately handle the browser submit event here rather
+    // than passing handlePasswordSubmit directly to onSubmit.
+    //
+    // This prevents the browser's native form submission and lets
+    // us verify that the password form is actually reaching the
+    // native authentication handler.
+    // ============================================================
+
+    const handleSubmit = (event) => {
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        console.log(
+            "========== LOGIN PASSWORD FORM SUBMITTED =========="
+        );
+
+        console.log(
+            "Username:",
+            username
+        );
+
+        console.log(
+            "Password supplied:",
+            password
+                ? "YES"
+                : "NO"
+        );
+
+        console.log(
+            "handlePasswordSubmit:",
+            handlePasswordSubmit
+        );
+
+        if (
+            typeof handlePasswordSubmit !==
+            "function"
+        ) {
+
+            console.error(
+                "handlePasswordSubmit is not a function."
+            );
+
+            return;
+        }
+
+        handlePasswordSubmit(event);
+    };
+
+
     return (
 
         <Box
             component="form"
-            onSubmit={handlePasswordSubmit}
+            onSubmit={handleSubmit}
         >
+
+            {/* ==================================================
+                EMAIL
+            ================================================== */}
 
             <Typography
                 sx={{
@@ -56,6 +113,10 @@ const LoginPasswordStep = ({
                 }}
             />
 
+
+            {/* ==================================================
+                PASSWORD
+            ================================================== */}
 
             <Typography
                 sx={{
@@ -98,9 +159,13 @@ const LoginPasswordStep = ({
                         >
 
                             {showPassword ? (
+
                                 <VisibilityOff />
+
                             ) : (
+
                                 <Visibility />
+
                             )}
 
                         </IconButton>
@@ -112,6 +177,10 @@ const LoginPasswordStep = ({
                 }}
             />
 
+
+            {/* ==================================================
+                REMEMBER ME / FORGOT PASSWORD
+            ================================================== */}
 
             <Box
                 sx={{
@@ -166,6 +235,10 @@ const LoginPasswordStep = ({
             </Box>
 
 
+            {/* ==================================================
+                SIGN IN
+            ================================================== */}
+
             <Button
                 type="submit"
                 fullWidth
@@ -191,6 +264,10 @@ const LoginPasswordStep = ({
 
             </Button>
 
+
+            {/* ==================================================
+                BACK
+            ================================================== */}
 
             <Button
                 type="button"

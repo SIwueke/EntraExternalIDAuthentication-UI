@@ -34,6 +34,8 @@ import LoginMfaMethodStep
 import MfaChallenge
     from "../components/MfaChallenge";
 
+import MfaEnrollmentStep
+    from "../components/authentication/MfaEnrollmentStep";
 
 const primaryButtonSx = {
     py: 1.75,
@@ -104,7 +106,11 @@ const CustomLoginPage = () => {
 
         remember,
         setRemember,
-
+        mfaEnrollmentStatus,
+        enrollmentData,
+        enrollmentCode,
+        setEnrollmentCode,
+        handleEnrollmentSubmit,
         mfaMethods,
         selectedMfaMethod,
         setSelectedMfaMethod,
@@ -117,9 +123,21 @@ const CustomLoginPage = () => {
         handleRegistrationCodeSubmit,
         handleCodeSubmit,
         handleBack
-
     } = useNativeAuth();
 
+    console.log(
+        "========== CUSTOM LOGIN HANDLERS =========="
+    );
+
+    console.log(
+        "handleEmailSubmit:",
+        handleEmailSubmit
+    );
+
+    console.log(
+        "handlePasswordSubmit:",
+        handlePasswordSubmit
+    );
 
     // ============================================================
     // AUTHENTICATION STEP RENDERING
@@ -181,7 +199,7 @@ const CustomLoginPage = () => {
                     />
                 );
 
-
+             
             // ====================================================
             // MFA METHOD SELECTION
             // ====================================================
@@ -224,7 +242,47 @@ const CustomLoginPage = () => {
                     />
                 );
 
+             // ====================================================
+        // APPLICATION MFA ENROLLMENT
+        // ====================================================
 
+        case "mfaEnrollment":
+
+            return (
+                <MfaEnrollmentStep
+                    enrollmentData={
+                        enrollmentData
+                    }
+
+                    enrollmentCode={
+                        enrollmentCode
+                    }
+
+                    setEnrollmentCode={
+                        setEnrollmentCode
+                    }
+
+                    loading={
+                        loading
+                    }
+
+                    handleEnrollmentSubmit={
+                        handleEnrollmentSubmit
+                    }
+
+                    handleBack={
+                        handleBack
+                    }
+
+                    primaryButtonSx={
+                        primaryButtonSx
+                    }
+
+                    backButtonSx={
+                        backButtonSx
+                    }
+                />
+            );
             // ====================================================
             // MFA CODE
             // ====================================================

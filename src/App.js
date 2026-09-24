@@ -656,58 +656,67 @@ function MsalDemoPage() {
             {/* TOKEN */}
             {/* ================================================= */}
 
-            <section
-                style={{
-                    border:
-                        "1px solid #ccc",
-                    padding: "20px",
-                    marginBottom: "20px",
-                    borderRadius: "8px",
-                }}
+            {/* ================================================= */}
+        {/* ENTRA ACCESS TOKEN */}
+        {/* ================================================= */}
+
+        <section
+            style={{
+                border: "1px solid #ccc",
+                padding: "20px",
+                marginBottom: "20px",
+                borderRadius: "8px",
+            }}
+        >
+            <h2>Entra Access Token</h2>
+
+            <p>
+                <strong>Source:</strong>{" "}
+                {tokenSource || "None"}
+            </p>
+
+            <p>
+                <strong>Status:</strong>{" "}
+                {token
+                    ? `Available (${token.length} characters)`
+                    : "Not loaded"}
+            </p>
+
+            <button
+                type="button"
+                onClick={handleGetAccessToken}
+                disabled={
+                    loading ||
+                    !isApplicationAuthenticated
+                }
+                style={{ marginBottom: "15px" }}
             >
+                {loading
+                    ? "Loading..."
+                    : "Get Access Token"}
+            </button>
 
-                <h2>
-                    Entra Access Token
-                </h2>
+            <div>
+                <strong>JWT Access Token</strong>
 
-
-                <p>
-                    <strong>
-                        Source:
-                    </strong>{" "}
-
-                    {tokenSource ||
-                        "None"}
-                </p>
-
-
-                <p>
-                    <strong>
-                        Token:
-                    </strong>{" "}
-
-                    {token
-                        ? `Available (${token.length} characters)`
-                        : "Not loaded"}
-                </p>
-
-
-                <button
-                    type="button"
-                    onClick={
-                        handleGetAccessToken
-                    }
-                    disabled={
-                        loading ||
-                        !isApplicationAuthenticated
-                    }
-                >
-                    {loading
-                        ? "Loading..."
-                        : "Get Access Token"}
-                </button>
-
-            </section>
+                <textarea
+                    readOnly
+                    value={token || ""}
+                    placeholder="The Entra access token will appear here after clicking 'Get Access Token'."
+                    style={{
+                        width: "100%",
+                        height: "220px",
+                        marginTop: "8px",
+                        fontFamily:
+                            "Consolas, monospace",
+                        fontSize: "12px",
+                        padding: "10px",
+                        resize: "vertical",
+                        wordBreak: "break-all",
+                    }}
+                />
+            </div>
+        </section>
 
 
             {/* ================================================= */}
