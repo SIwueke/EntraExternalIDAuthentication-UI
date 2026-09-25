@@ -37,6 +37,13 @@ import MfaChallenge
 import MfaEnrollmentStep
     from "../components/authentication/MfaEnrollmentStep";
 
+import PasswordResetCodeStep
+    from "../components/authentication/PasswordResetCodeStep";
+
+import PasswordChangeStep
+    from "../components/authentication/PasswordChangeStep";
+
+
 const primaryButtonSx = {
     py: 1.75,
     borderRadius: "18px",
@@ -59,14 +66,6 @@ const CustomLoginPage = () => {
 
     // ============================================================
     // REACT ROUTER NAVIGATION
-    //
-    // IMPORTANT:
-    //
-    // Use navigate("/") rather than window.location.href = "/".
-    //
-    // React Router navigation keeps the current SPA alive and
-    // therefore preserves the in-memory CustomAuthAccountData
-    // stored by useNativeLogin/nativeAuthService.
     // ============================================================
 
     const navigate = useNavigate();
@@ -79,10 +78,32 @@ const CustomLoginPage = () => {
     const {
         username,
         setUsername,
+
         password,
         setPassword,
+
         code,
         setCode,
+
+        // ========================================================
+        // PASSWORD RESET
+        // ========================================================
+
+        passwordResetCode,
+        setPasswordResetCode,
+
+        newPassword,
+        setNewPassword,
+
+        confirmPassword,
+        setConfirmPassword,
+
+        handlePasswordResetCodeSubmit,
+        handleNewPasswordSubmit,
+
+        // ========================================================
+        // MFA
+        // ========================================================
 
         activeMfaMethod,
 
@@ -97,6 +118,7 @@ const CustomLoginPage = () => {
         setRegistrationCode,
 
         step,
+
         loading,
         error,
         success,
@@ -106,24 +128,38 @@ const CustomLoginPage = () => {
 
         remember,
         setRemember,
+
         mfaEnrollmentStatus,
         enrollmentData,
         enrollmentCode,
         setEnrollmentCode,
+
         handleEnrollmentSubmit,
+
         mfaMethods,
         selectedMfaMethod,
         setSelectedMfaMethod,
 
         handleMfaMethodSubmit,
+
         handleEmailSubmit,
         handlePasswordSubmit,
+
         handleMfaSubmit,
+
         handleRegistrationSubmit,
         handleRegistrationCodeSubmit,
+
         handleCodeSubmit,
+
         handleBack
+
     } = useNativeAuth();
+
+
+    // ============================================================
+    // DEBUG
+    // ============================================================
 
     console.log(
         "========== CUSTOM LOGIN HANDLERS =========="
@@ -138,6 +174,7 @@ const CustomLoginPage = () => {
         "handlePasswordSubmit:",
         handlePasswordSubmit
     );
+
 
     // ============================================================
     // AUTHENTICATION STEP RENDERING
@@ -189,7 +226,9 @@ const CustomLoginPage = () => {
                         handlePasswordSubmit={
                             handlePasswordSubmit
                         }
-                        handleBack={handleBack}
+                        handleBack={
+                            handleBack
+                        }
                         primaryButtonSx={
                             primaryButtonSx
                         }
@@ -199,7 +238,91 @@ const CustomLoginPage = () => {
                     />
                 );
 
-             
+
+            // ====================================================
+            // PASSWORD RESET CODE
+            // ====================================================
+
+            case "passwordResetCode":
+
+                return (
+                    <PasswordResetCodeStep
+                        username={username}
+
+                        passwordResetCode={
+                            passwordResetCode
+                        }
+
+                        setPasswordResetCode={
+                            setPasswordResetCode
+                        }
+
+                        loading={loading}
+
+                        handlePasswordResetCodeSubmit={
+                            handlePasswordResetCodeSubmit
+                        }
+
+                        handleBack={
+                            handleBack
+                        }
+
+                        primaryButtonSx={
+                            primaryButtonSx
+                        }
+
+                        backButtonSx={
+                            backButtonSx
+                        }
+                    />
+                );
+
+
+            // ====================================================
+            // PASSWORD CHANGE
+            // ====================================================
+
+            case "passwordChange":
+
+                return (
+                    <PasswordChangeStep
+                        newPassword={
+                            newPassword
+                        }
+
+                        setNewPassword={
+                            setNewPassword
+                        }
+
+                        confirmPassword={
+                            confirmPassword
+                        }
+
+                        setConfirmPassword={
+                            setConfirmPassword
+                        }
+
+                        loading={loading}
+
+                        handleNewPasswordSubmit={
+                            handleNewPasswordSubmit
+                        }
+
+                        handleBack={
+                            handleBack
+                        }
+
+                        primaryButtonSx={
+                            primaryButtonSx
+                        }
+
+                        backButtonSx={
+                            backButtonSx
+                        }
+                    />
+                );
+
+
             // ====================================================
             // MFA METHOD SELECTION
             // ====================================================
@@ -242,119 +365,121 @@ const CustomLoginPage = () => {
                     />
                 );
 
-             // ====================================================
-        // APPLICATION MFA ENROLLMENT
-        // ====================================================
 
-        case "mfaEnrollment":
+            // ====================================================
+            // APPLICATION MFA ENROLLMENT
+            // ====================================================
 
-            return (
-                <MfaEnrollmentStep
-                    enrollmentData={
-                        enrollmentData
-                    }
+            case "mfaEnrollment":
 
-                    enrollmentCode={
-                        enrollmentCode
-                    }
+                return (
+                    <MfaEnrollmentStep
+                        enrollmentData={
+                            enrollmentData
+                        }
 
-                    setEnrollmentCode={
-                        setEnrollmentCode
-                    }
+                        enrollmentCode={
+                            enrollmentCode
+                        }
 
-                    loading={
-                        loading
-                    }
+                        setEnrollmentCode={
+                            setEnrollmentCode
+                        }
 
-                    handleEnrollmentSubmit={
-                        handleEnrollmentSubmit
-                    }
+                        loading={
+                            loading
+                        }
 
-                    handleBack={
-                        handleBack
-                    }
+                        handleEnrollmentSubmit={
+                            handleEnrollmentSubmit
+                        }
 
-                    primaryButtonSx={
-                        primaryButtonSx
-                    }
+                        handleBack={
+                            handleBack
+                        }
 
-                    backButtonSx={
-                        backButtonSx
-                    }
-                />
-            );
+                        primaryButtonSx={
+                            primaryButtonSx
+                        }
+
+                        backButtonSx={
+                            backButtonSx
+                        }
+                    />
+                );
+
+
             // ====================================================
             // MFA CODE
             // ====================================================
 
             case "mfaCode": {
 
-            const nativeMfaCodeLength =
-                activeMfaMethod?.challenge_channel ===
-                "email"
-                    ? 8
-                    : 6;
+                const nativeMfaCodeLength =
+                    activeMfaMethod?.challenge_channel ===
+                    "email"
+                        ? 8
+                        : 6;
 
-            return (
-                <MfaChallenge
-                    nativeMfaMethods={
-                        mfaMethods
-                    }
+                return (
+                    <MfaChallenge
+                        nativeMfaMethods={
+                            mfaMethods
+                        }
 
-                    selectedNativeMfaMethod={
-                        selectedMfaMethod
-                    }
+                        selectedNativeMfaMethod={
+                            selectedMfaMethod
+                        }
 
-                    onSelectNativeMfaMethod={
-                        setSelectedMfaMethod
-                    }
+                        onSelectNativeMfaMethod={
+                            setSelectedMfaMethod
+                        }
 
-                    onSubmitNativeMfaMethod={
-                        handleMfaMethodSubmit
-                    }
+                        onSubmitNativeMfaMethod={
+                            handleMfaMethodSubmit
+                        }
 
-                    onVerifyNativeMfaCode={
-                        handleMfaSubmit
-                    }
+                        onVerifyNativeMfaCode={
+                            handleMfaSubmit
+                        }
 
-                    nativeMfaStep={
-                        true
-                    }
+                        nativeMfaStep={
+                            true
+                        }
 
-                    nativeMfaCode={
-                        code
-                    }
+                        nativeMfaCode={
+                            code
+                        }
 
-                    nativeMfaCodeLength={
-                        nativeMfaCodeLength
-                    }
+                        nativeMfaCodeLength={
+                            nativeMfaCodeLength
+                        }
 
-                    onNativeMfaCodeChange={
-                        setCode
-                    }
+                        onNativeMfaCodeChange={
+                            setCode
+                        }
 
-                    loading={
-                        loading
-                    }
+                        loading={
+                            loading
+                        }
 
-                    message={
-                        activeMfaMethod?.challenge_channel ===
-                        "authenticator"
-                            ? "Enter the 6-digit code from Microsoft Authenticator."
+                        message={
+                            activeMfaMethod?.challenge_channel ===
+                            "authenticator"
+                                ? "Enter the 6-digit code from Microsoft Authenticator."
+                                : activeMfaMethod?.challenge_channel ===
+                                  "sms"
+                                    ? "Enter the verification code sent by text message."
+                                    : "Enter the verification code sent by email."
+                        }
 
-                            : activeMfaMethod?.challenge_channel ===
-                            "sms"
-                                ? "Enter the verification code sent by text message."
+                        onCancel={
+                            handleBack
+                        }
+                    />
+                );
+            }
 
-                                : "Enter the verification code sent by email."
-                    }
-
-                    onCancel={
-                        handleBack
-                    }
-                />
-            );
-        }
 
             // ====================================================
             // STANDARD VERIFICATION CODE
@@ -480,22 +605,6 @@ const CustomLoginPage = () => {
 
             // ====================================================
             // AUTHENTICATED
-            //
-            // Both authentication factors are now complete:
-            //
-            // 1. Entra password authentication
-            // 2. Microsoft Authenticator TOTP
-            //
-            // IMPORTANT:
-            //
-            // We use React Router navigate().
-            //
-            // DO NOT use:
-            //
-            // window.location.href = "/"
-            //
-            // because that would reload the application and destroy
-            // the in-memory CustomAuthAccountData reference.
             // ====================================================
 
             case "authenticated":
@@ -535,6 +644,7 @@ const CustomLoginPage = () => {
                             variant="contained"
                             fullWidth
                             onClick={() => {
+
                                 console.log(
                                     "========== CONTINUE TO CLIENT PORTAL =========="
                                 );
@@ -547,6 +657,7 @@ const CustomLoginPage = () => {
                             }}
                             sx={{
                                 ...primaryButtonSx,
+
                                 "&:hover": {
                                     background:
                                         "linear-gradient(90deg, #544070, #2e3258)"
@@ -687,8 +798,8 @@ const CustomLoginPage = () => {
 
         </Box>
     );
-
 };
 
 
 export default CustomLoginPage;
+

@@ -1,9 +1,12 @@
+
 import { useCallback, useRef, useState } from "react";
 
 import {
     startSignIn,
     submitPassword,
     submitVerificationCode,
+    submitPasswordResetCode,
+    submitNewPassword,
     clearSignInState,
     submitMfaChallenge,
     requestMfaChallenge,
@@ -27,13 +30,14 @@ const API_BASE_URL = "https://localhost:7290";
 
 const MFA_STATUS_URL = "/api/mfa/status";
 
-const MFA_ENROL_URL =  "/api/mfa/enrol";
+const MFA_ENROL_URL = "/api/mfa/enrol";
 
-const MFA_ENROL_VERIFY_URL =  "/api/mfa/enrol/verify";
+const MFA_ENROL_VERIFY_URL = "/api/mfa/enrol/verify";
 
-const MFA_VERIFY_URL =   "/api/mfa/verify";
+const MFA_VERIFY_URL = "/api/mfa/verify";
 
-const APPLICATION_AUTHENTICATOR_ID =    "application-authenticator";
+const APPLICATION_AUTHENTICATOR_ID =
+    "application-authenticator";
 
 
 const APPLICATION_AUTHENTICATOR_METHOD = {
@@ -154,8 +158,17 @@ const useNativeLogin = () => {
     const [showPassword, setShowPassword] =
         useState(false);
 
+    const [newPassword, setNewPassword] =
+        useState("");
+
+    const [confirmPassword, setConfirmPassword] =
+        useState("");
+
     const [remember, setRemember] =
         useState(false);
+
+    const [passwordResetCode, setPasswordResetCode] =
+        useState("");
 
 
     // ============================================================
@@ -163,7 +176,7 @@ const useNativeLogin = () => {
     //
     // IMPORTANT:
     //
-    // This reference must contain ONLY the original Entra
+    // This reference contains ONLY the original Entra
     // authentication result.
     //
     // Application MFA responses must NEVER replace it.
@@ -189,110 +202,103 @@ const useNativeLogin = () => {
     // GET ORIGINAL AUTHENTICATION RESULT
     // ============================================================
 
-    const getAuthenticationResult = useCallback(() => {
+    const getAuthenticationResult =
+        useCallback(() => {
 
-        const authenticationResult =
-            nativeAuthenticationResultRef.current;
+            const authenticationResult =
+                nativeAuthenticationResultRef.current;
 
-        if (!authenticationResult) {
+            if (!authenticationResult) {
 
-            throw new Error(
-                "The Entra authentication result is not available."
-            );
-        }
+                throw new Error(
+                    "The Entra authentication result is not available."
+                );
+            }
 
-        return authenticationResult;
+            return authenticationResult;
 
-    }, []);
+        }, []);
 
 
     // ============================================================
     // GET ENTRA BEARER TOKEN
     // ============================================================
 
-    const getBearerToken = useCallback(async () => {
+    const getBearerToken =
+        useCallback(async () => {
 
-        const authenticationResult =
-            getAuthenticationResult();
+            const authenticationResult =
+                getAuthenticationResult();
 
+            const token =
+                await getNativeAccessToken(
+                    authenticationResult
+                );
 
-        const token =
-            await getNativeAccessToken(
-                authenticationResult
-            );
+            if (!token) {
 
+                throw new Error(
+                    "Unable to obtain the Entra access token."
+                );
+            }
 
-        if (!token) {
+            return token;
 
-            throw new Error(
-                "Unable to obtain the Entra access token."
-            );
-        }
-
-
-        return token;
-
-    }, [
-        getAuthenticationResult
-    ]);
+        }, [
+            getAuthenticationResult
+        ]);
 
 
     // ============================================================
     // APPLICATION MFA API HELPER
-    //
-    // All application MFA API calls go through the SAME
-    // callProtectedApi mechanism used elsewhere in the app.
-    //
-    // This avoids using raw fetch() in this hook.
-    //
-    // IMPORTANT:
-    //
-    // This helper obtains the token from the ORIGINAL Entra
-    // authentication result.
     // ============================================================
 
-        const callApplicationMfaApi = useCallback(async (url, options = {}) => {
+    const callApplicationMfaApi =
+        useCallback(
+            async (url, options = {}) => {
 
-            console.log(
-                "========== CALL APPLICATION MFA API =========="
-            );
-
-            console.log(
-                "MFA API URL:",
-                url
-            );
-
-            const accessToken =
-                await getBearerToken();
-
-            if (!accessToken) {
-                throw new Error(
-                    "No Entra access token is available for the application MFA API."
+                console.log(
+                    "========== CALL APPLICATION MFA API =========="
                 );
-            }
 
-            console.log(
-                "Application MFA access token length:",
-                accessToken.length
-            );
+                console.log(
+                    "MFA API URL:",
+                    url
+                );
 
-            return callProtectedApi(
-                accessToken,
-                url,
-                {
-                    ...options,
-                    credentials: "include"
+                const accessToken =
+                    await getBearerToken();
+
+                if (!accessToken) {
+
+                    throw new Error(
+                        "No Entra access token is available for the application MFA API."
+                    );
                 }
-            );
-        },
-        [getBearerToken]
-    );
+
+                console.log(
+                    "Application MFA access token length:",
+                    accessToken.length
+                );
+
+                return callProtectedApi(
+                    accessToken,
+                    url,
+                    {
+                        ...options,
+                        credentials: "include"
+                    }
+                );
+
+            },
+            [
+                getBearerToken
+            ]
+        );
+
 
     // ============================================================
     // BUILD APPLICATION MFA METHODS
-    //
-    // This is deliberately declared BEFORE any handlers that
-    // reference it.
     // ============================================================
 
     const buildCustomMfaMethods =
@@ -309,17 +315,6 @@ const useNativeLogin = () => {
 
     // ============================================================
     // START APPLICATION MFA ENROLLMENT
-    //
-    // Calls:
-    //
-    // POST /api/mfa/enrol
-    //
-    // Backend returns:
-    //
-    // {
-    //     secret: "...",
-    //     otpAuthUri: "otpauth://..."
-    // }
     // ============================================================
 
     const startApplicationMfaEnrollment =
@@ -329,7 +324,6 @@ const useNativeLogin = () => {
                 "========== START APPLICATION MFA ENROLLMENT =========="
             );
 
-
             const data =
                 await callApplicationMfaApi(
                     MFA_ENROL_URL,
@@ -338,12 +332,10 @@ const useNativeLogin = () => {
                     }
                 );
 
-
             console.log(
                 "Enrollment data:",
                 data
             );
-
 
             setEnrollmentData(data);
 
@@ -354,8 +346,9 @@ const useNativeLogin = () => {
                 enabled: false
             });
 
-            setStep("mfaEnrollment");
-
+            setStep(
+                "mfaEnrollment"
+            );
 
             return data;
 
@@ -366,17 +359,6 @@ const useNativeLogin = () => {
 
     // ============================================================
     // CHECK APPLICATION MFA STATUS
-    //
-    // This is the critical decision point after Entra password
-    // authentication has completed.
-    //
-    // GET /api/mfa/status
-    //
-    // If enrolled:
-    //     show Authenticator code screen.
-    //
-    // If not enrolled:
-    //     start enrollment.
     // ============================================================
 
     const checkApplicationMfaStatus =
@@ -386,7 +368,6 @@ const useNativeLogin = () => {
                 "========== CHECK APPLICATION MFA STATUS =========="
             );
 
-
             const status =
                 await callApplicationMfaApi(
                     MFA_STATUS_URL,
@@ -395,15 +376,14 @@ const useNativeLogin = () => {
                     }
                 );
 
-
             console.log(
                 "MFA status:",
                 status
             );
 
-
-            setMfaEnrollmentStatus(status);
-
+            setMfaEnrollmentStatus(
+                status
+            );
 
             const enrolled =
                 status?.enrolled === true;
@@ -416,37 +396,36 @@ const useNativeLogin = () => {
             // ALREADY ENROLLED
             // ====================================================
 
-            if (enrolled && enabled) {
+            if (
+                enrolled &&
+                enabled
+            ) {
 
                 console.log(
                     "Application MFA is already enrolled."
                 );
 
-
                 const authenticatorMethod = {
                     ...APPLICATION_AUTHENTICATOR_METHOD
                 };
-
 
                 setMfaMethods([
                     authenticatorMethod
                 ]);
 
-
                 setSelectedMfaMethod(
                     authenticatorMethod
                 );
-
 
                 setActiveMfaMethod(
                     authenticatorMethod
                 );
 
-
                 setCode("");
 
-                setStep("mfaCode");
-
+                setStep(
+                    "mfaCode"
+                );
 
                 return {
                     enrolled: true,
@@ -463,7 +442,6 @@ const useNativeLogin = () => {
                 "Application MFA is NOT enrolled."
             );
 
-
             setMfaMethods([]);
 
             setSelectedMfaMethod(null);
@@ -474,9 +452,7 @@ const useNativeLogin = () => {
 
             setEnrollmentCode("");
 
-
             await startApplicationMfaEnrollment();
-
 
             return {
                 enrolled: false,
@@ -491,21 +467,6 @@ const useNativeLogin = () => {
 
     // ============================================================
     // VERIFY NEW MFA ENROLLMENT
-    //
-    // POST /api/mfa/enrol/verify
-    //
-    // This:
-    //
-    // 1. validates the TOTP code
-    // 2. creates/updates UserMfas
-    // 3. enables TOTP
-    // 4. removes temporary enrollment
-    //
-    // NOTE:
-    //
-    // This endpoint does NOT create mfa_session.
-    // That is why handleEnrollmentSubmit subsequently calls
-    // /api/mfa/verify with the same code.
     // ============================================================
 
     const verifyApplicationMfaEnrollment =
@@ -514,7 +475,6 @@ const useNativeLogin = () => {
             console.log(
                 "========== VERIFY APPLICATION MFA ENROLLMENT =========="
             );
-
 
             const result =
                 await callApplicationMfaApi(
@@ -533,12 +493,10 @@ const useNativeLogin = () => {
                     }
                 );
 
-
             console.log(
                 "Enrollment verification result:",
                 result
             );
-
 
             return result;
 
@@ -549,19 +507,6 @@ const useNativeLogin = () => {
 
     // ============================================================
     // VERIFY APPLICATION AUTHENTICATOR
-    //
-    // POST /api/mfa/verify
-    //
-    // This is the EXISTING endpoint which:
-    //
-    // 1. validates the TOTP
-    // 2. creates the mfa_session cookie
-    // 3. returns success
-    //
-    // IMPORTANT:
-    //
-    // The application MFA response does NOT replace the original
-    // Entra authentication result.
     // ============================================================
 
     const verifyApplicationAuthenticator =
@@ -570,7 +515,6 @@ const useNativeLogin = () => {
             console.log(
                 "========== VERIFY APPLICATION AUTHENTICATOR =========="
             );
-
 
             const result =
                 await callApplicationMfaApi(
@@ -589,12 +533,10 @@ const useNativeLogin = () => {
                     }
                 );
 
-
             console.log(
                 "Application MFA verification result:",
                 result
             );
-
 
             return {
                 success:
@@ -614,85 +556,81 @@ const useNativeLogin = () => {
     // PASSWORD AUTHENTICATION COMPLETED
     //
     // The Entra authentication result is retained FIRST.
-    //
-    // Then the application MFA database is checked.
+    // Then application MFA is checked.
     // ============================================================
 
     const handlePasswordAuthenticationCompleted =
-        useCallback(async (authenticationResult) => {
+        useCallback(
+            async (authenticationResult) => {
 
-            console.log(
-                "========== NATIVE AUTHENTICATION COMPLETED =========="
-            );
-
-
-            console.log(
-                "Authentication Result:",
-                authenticationResult
-            );
-
-
-            if (!authenticationResult) {
-
-                throw new Error(
-                    "Native Authentication completed without an authentication result."
+                console.log(
+                    "========== NATIVE AUTHENTICATION COMPLETED =========="
                 );
-            }
+
+                console.log(
+                    "Authentication Result:",
+                    authenticationResult
+                );
+
+                if (!authenticationResult) {
+
+                    throw new Error(
+                        "Native Authentication completed without an authentication result."
+                    );
+                }
 
 
-            // ====================================================
-            // PRESERVE ORIGINAL ENTRA RESULT
-            // ====================================================
+                // ====================================================
+                // PRESERVE ORIGINAL ENTRA RESULT
+                // ====================================================
 
-            nativeAuthenticationResultRef.current =
-                authenticationResult;
-
-
-            /*
-             * Also preserve it in nativeAuthService.
-             */
-
-            await storeCompletedAuthenticationResult(
-                authenticationResult
-            );
+                nativeAuthenticationResultRef.current =
+                    authenticationResult;
 
 
-            clearMessages();
-
-            setLoading(true);
-
-
-            try {
-
-                await checkApplicationMfaStatus();
-
-            }
-            catch (err) {
-
-                console.error(
-                    "Unable to determine application MFA status:",
-                    err
+                await storeCompletedAuthenticationResult(
+                    authenticationResult
                 );
 
 
-                setError(
-                    err?.message ||
-                    "Unable to determine application MFA status."
-                );
+                clearMessages();
+
+                setLoading(true);
 
 
-                setStep("password");
+                try {
 
-            }
-            finally {
+                    await checkApplicationMfaStatus();
 
-                setLoading(false);
-            }
+                }
+                catch (err) {
 
-        }, [
-            checkApplicationMfaStatus,
-            clearMessages
-        ]);
+                    console.error(
+                        "Unable to determine application MFA status:",
+                        err
+                    );
+
+                    setError(
+                        err?.message ||
+                        "Unable to determine application MFA status."
+                    );
+
+                    setStep(
+                        "password"
+                    );
+
+                }
+                finally {
+
+                    setLoading(false);
+                }
+
+            },
+            [
+                checkApplicationMfaStatus,
+                clearMessages
+            ]
+        );
 
 
     // ============================================================
@@ -700,15 +638,18 @@ const useNativeLogin = () => {
     // ============================================================
 
     const handleAuthenticationCompleted =
-        useCallback(async (authenticationResult) => {
+        useCallback(
+            async (authenticationResult) => {
 
-            await handlePasswordAuthenticationCompleted(
-                authenticationResult
-            );
+                await handlePasswordAuthenticationCompleted(
+                    authenticationResult
+                );
 
-        }, [
-            handlePasswordAuthenticationCompleted
-        ]);
+            },
+            [
+                handlePasswordAuthenticationCompleted
+            ]
+        );
 
 
     // ============================================================
@@ -727,10 +668,8 @@ const useNativeLogin = () => {
                 );
             }
 
-
             const authenticationResult =
                 nativeAuthenticationResultRef.current;
-
 
             if (!authenticationResult) {
 
@@ -738,7 +677,6 @@ const useNativeLogin = () => {
                     "The Entra authentication result is unavailable."
                 );
             }
-
 
             return await getNativeAccessToken(
                 authenticationResult
@@ -751,71 +689,76 @@ const useNativeLogin = () => {
 
     // ============================================================
     // CALL PROTECTED API
-    //
-    // This remains the application's normal protected API
-    // mechanism AFTER application MFA.
     // ============================================================
 
-    const callApi = useCallback(async (url, options = {}) => {
+    const callApi =
+        useCallback(
+            async (url, options = {}) => {
 
-            console.log(
-                "========== CALL API FROM NATIVE AUTH =========="
-            );
-
-            console.log(
-                "API URL:",
-                url
-            );
-
-            console.log(
-                "API options:",
-                options
-            );
-
-            if (
-                typeof url !== "string" ||
-                !url.trim()
-            ) {
-                throw new Error(
-                    "callApi() requires a URL string."
+                console.log(
+                    "========== CALL API FROM NATIVE AUTH =========="
                 );
-            }
 
-            const accessToken =
-                await getAccessToken();
-
-            if (!accessToken) {
-                throw new Error(
-                    "No Entra access token is available."
+                console.log(
+                    "API URL:",
+                    url
                 );
-            }
 
-            console.log(
-                "Entra access token acquired. Length:",
-                accessToken.length
-            );
+                console.log(
+                    "API options:",
+                    options
+                );
 
-            return callProtectedApi(
-                accessToken,
-                url,
-                options
-            );
-        },
-        [
-            getAccessToken,
-            callProtectedApi
-        ]
-    );
+                if (
+                    typeof url !== "string" ||
+                    !url.trim()
+                ) {
+
+                    throw new Error(
+                        "callApi() requires a URL string."
+                    );
+                }
+
+                const accessToken =
+                    await getAccessToken();
+
+                if (!accessToken) {
+
+                    throw new Error(
+                        "No Entra access token is available."
+                    );
+                }
+
+                console.log(
+                    "Entra access token acquired. Length:",
+                    accessToken.length
+                );
+
+                return callProtectedApi(
+                    accessToken,
+                    url,
+                    options
+                );
+
+            },
+            [
+                getAccessToken
+            ]
+        );
+
 
     // ============================================================
     // EMAIL SUBMIT
     // ============================================================
 
-   const handleEmailSubmit =
-    useCallback(async () => {
+    const handleEmailSubmit = async () => {
 
         console.log(
-            "========== EMAIL SUBMIT =========="
+            "=================================================="
+        );
+
+        console.log(
+            "========== HANDLE EMAIL SUBMIT ==================="
         );
 
         console.log(
@@ -823,22 +766,33 @@ const useNativeLogin = () => {
             username
         );
 
-        clearMessages();
-
-        setLoading(true);
-
         try {
+
+            setError("");
+            setSuccess("");
+            setLoading(true);
+
 
             const result =
                 await startSignIn(username);
 
+
             console.log(
-                "========== START SIGN IN RESULT =========="
+                "=================================================="
             );
 
             console.log(
-                "Full result:",
+                "========== START SIGN-IN RETURNED ==============="
+            );
+
+            console.log(
+                "Result:",
                 result
+            );
+
+            console.log(
+                "Result success:",
+                result?.success
             );
 
             console.log(
@@ -847,146 +801,275 @@ const useNativeLogin = () => {
             );
 
             console.log(
-                "Result authentication result:",
-                result?.authenticationResult
+                "Result message:",
+                result?.message
+            );
+
+            console.log(
+                "Result state:",
+                result?.state
+            );
+
+            console.log(
+                "Result state constructor:",
+                result?.state?.constructor?.name
+            );
+
+            console.log(
+                "=================================================="
             );
 
 
             if (!result) {
 
-                throw new Error(
-                    "startSignIn returned no result."
+                console.error(
+                    "startSignIn returned null/undefined."
                 );
+
+                setError(
+                    "Sign-in returned no result."
+                );
+
+                return;
+
             }
 
 
-            // ====================================================
+            if (!result.success) {
+
+                console.error(
+                    "Initial sign-in failed:",
+                    result
+                );
+
+                setError(
+                    result.message ||
+                    "Unable to start sign-in."
+                );
+
+                return;
+
+            }
+
+
+            // --------------------------------------------------
             // PASSWORD
-            // ====================================================
+            // --------------------------------------------------
 
             if (
-                result?.step === "password"
+                result.step === "password"
             ) {
 
                 console.log(
-                    "Navigating to PASSWORD step."
+                    "========== MOVING TO PASSWORD STEP =========="
                 );
 
                 setStep("password");
 
                 return;
+
             }
 
 
-            // ====================================================
-            // VERIFICATION CODE
-            // ====================================================
+            // --------------------------------------------------
+            // CODE
+            // --------------------------------------------------
 
             if (
-                result?.step === "code"
+                result.step === "code"
             ) {
 
                 console.log(
-                    "Navigating to CODE step."
+                    "========== MOVING TO CODE STEP =========="
                 );
 
                 setStep("code");
 
                 return;
+
             }
 
 
-            // ====================================================
+            // --------------------------------------------------
             // MFA
-            // ====================================================
+            // --------------------------------------------------
 
             if (
-                result?.step === "mfa"
+                result.step === "mfa"
             ) {
 
                 console.log(
-                    "Navigating to MFA step."
-                );
-
-                setMfaMethods(
-                    buildCustomMfaMethods()
+                    "========== MOVING TO MFA STEP =========="
                 );
 
                 setStep("mfa");
 
                 return;
+
             }
 
 
-            // ====================================================
+            // --------------------------------------------------
+            // MFA CODE
+            // --------------------------------------------------
+
+            if (
+                result.step === "mfaCode"
+            ) {
+
+                console.log(
+                    "========== MOVING TO MFA CODE STEP =========="
+                );
+
+                setStep("mfaCode");
+
+                return;
+
+            }
+
+
+            // --------------------------------------------------
             // AUTHENTICATION METHOD REGISTRATION
-            // ====================================================
+            // --------------------------------------------------
 
             if (
-                result?.step ===
-                "authMethodRegistration"
+                result.step === "authMethodRegistration"
             ) {
 
                 console.log(
-                    "Navigating to registration step."
+                    "========== AUTH METHOD REGISTRATION =========="
                 );
 
-                setStep("registration");
+                setStep(
+                    "authMethodRegistration"
+                );
 
                 return;
+
             }
 
 
-            // ====================================================
-            // AUTHENTICATION COMPLETED
-            // ====================================================
+            // --------------------------------------------------
+            // COMPLETED
+            // --------------------------------------------------
 
             if (
-                result?.step === "completed"
+                result.step === "completed"
             ) {
 
                 console.log(
-                    "Authentication completed directly."
+                    "========== SIGN-IN COMPLETED =========="
                 );
 
-                await handleAuthenticationCompleted(
-                    result.authenticationResult
-                );
+                setStep("completed");
 
                 return;
+
             }
 
 
-            // ====================================================
-            // UNKNOWN STEP
-            // ====================================================
+            // --------------------------------------------------
+            // PASSWORD RESET CODE
+            // --------------------------------------------------
 
-            console.warn(
-                "Unhandled startSignIn result:",
+            if (
+                result.step === "passwordResetCode"
+            ) {
+
+                console.log(
+                    "========== PASSWORD RESET CODE =========="
+                );
+
+                setStep("passwordResetCode");
+
+                return;
+
+            }
+
+
+            // --------------------------------------------------
+            // PASSWORD CHANGE
+            // --------------------------------------------------
+
+            if (
+                result.step === "passwordChange"
+            ) {
+
+                console.log(
+                    "========== PASSWORD CHANGE =========="
+                );
+
+                setStep("passwordChange");
+
+                return;
+
+            }
+
+
+            // --------------------------------------------------
+            // UNKNOWN
+            // --------------------------------------------------
+
+            console.error(
+                "=================================================="
+            );
+
+            console.error(
+                "========== UNEXPECTED SIGN-IN STEP =============="
+            );
+
+            console.error(
+                "Step:",
+                result.step
+            );
+
+            console.error(
+                "Full result:",
                 result
             );
 
-
-            throw new Error(
-                `Unexpected sign-in step: ${
-                    result?.step || "undefined"
-                }`
-            );
-
-        }
-        catch (err) {
-
             console.error(
-                "========== EMAIL AUTHENTICATION ERROR =========="
-            );
-
-            console.error(
-                err
+                "=================================================="
             );
 
 
             setError(
-                err?.message ||
+                `Unexpected sign-in step: ${result.step}`
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "=================================================="
+            );
+
+            console.error(
+                "========== HANDLE EMAIL SUBMIT ERROR ============="
+            );
+
+            console.error(
+                "Error:",
+                error
+            );
+
+            console.error(
+                "Message:",
+                error?.message
+            );
+
+            console.error(
+                "Stack:",
+                error?.stack
+            );
+
+            console.error(
+                "=================================================="
+            );
+
+
+            setError(
+                error?.message ||
                 "Unable to start sign-in."
             );
 
@@ -994,209 +1077,1000 @@ const useNativeLogin = () => {
         finally {
 
             setLoading(false);
+
         }
 
-    }, [
-        username,
-        clearMessages,
-        buildCustomMfaMethods,
-        handleAuthenticationCompleted
-    ]);
+    };
     // ============================================================
     // PASSWORD SUBMIT
     // ============================================================
 
-    const handlePasswordSubmit = async () => {
-
-    console.log(
-        "========== PASSWORD SUBMIT =========="
-    );
-
-    console.log(
-        "Password supplied:",
-        password ? "YES" : "NO"
-    );
-
-    clearMessages();
-    setLoading(true);
-
-    try {
-
-        console.log(
-            "Calling submitPassword()..."
-        );
-
-        const result = await submitPassword(password);
-
-        console.log(
-            "========== SUBMIT PASSWORD RESULT =========="
-        );
-
-        console.log(
-            "Full result:",
-            result
-        );
-
-        console.log(
-            "Result step:",
-            result?.step
-        );
-
-        console.log(
-            "Authentication result:",
-            result?.authenticationResult
-        );
-
-        console.log(
-            "Current username:",
-            username
-        );
-
-        if (!result) {
-
-            console.error(
-                "submitPassword() returned no result."
-            );
-
-            setError(
-                "Password authentication returned no result."
-            );
-
-            return;
-        }
-
-        // ========================================================
-        // ENTRA AUTHENTICATION COMPLETED
-        // ========================================================
-
-        if (
-            result.step === "completed" ||
-            result.authenticationResult
-        ) {
+    const handlePasswordSubmit =
+        useCallback(async () => {
 
             console.log(
-                "========== ENTRA PASSWORD AUTHENTICATION COMPLETED =========="
+                "========== PASSWORD SUBMIT =========="
             );
 
             console.log(
-                "Calling handlePasswordAuthenticationCompleted()..."
-            );
-
-            await handlePasswordAuthenticationCompleted(
-                result.authenticationResult
+                "Password supplied:",
+                password ? "YES" : "NO"
             );
 
             console.log(
-                "Returned from handlePasswordAuthenticationCompleted()."
+                "Current username:",
+                username
             );
 
-            return;
-        }
+            clearMessages();
 
-        // ========================================================
-        // STANDARD CODE
-        // ========================================================
+            setLoading(true);
 
-        if (result.step === "code") {
+            try {
 
-            console.log(
-                "Password authentication requires code."
-            );
-
-            setStep("code");
-
-            return;
-        }
-
-        // ========================================================
-        // MFA
-        // ========================================================
-
-        if (result.step === "mfa") {
-
-            console.log(
-                "Password authentication returned native MFA."
-            );
-
-            const methods =
-                buildCustomMfaMethods(
-                    result.mfaMethods
+                console.log(
+                    "Calling submitPassword()..."
                 );
 
-            setMfaMethods(methods);
+                const result =
+                    await submitPassword(
+                        password
+                    );
 
-            setSelectedMfaMethod(
-                methods[0] ?? null
-            );
+                console.log(
+                    "========== SUBMIT PASSWORD RESULT =========="
+                );
 
-            setStep("mfa");
+                console.log(
+                    "Full result:",
+                    result
+                );
 
-            return;
-        }
+                console.log(
+                    "Result step:",
+                    result?.step
+                );
 
-        // ========================================================
-        // REGISTRATION
-        // ========================================================
+                console.log(
+                    "Authentication result:",
+                    result?.authenticationResult
+                );
 
-        if (
-            result.step ===
-            "authMethodRegistration"
-        ) {
+                console.log(
+                    "Current username:",
+                    username
+                );
+
+
+                if (!result) {
+
+                    console.error(
+                        "submitPassword() returned no result."
+                    );
+
+                    setError(
+                        "Password authentication returned no result."
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // ENTRA AUTHENTICATION COMPLETED
+                // ========================================================
+
+                if (
+                    result?.step === "completed" &&
+                    result?.authenticationResult
+                ) {
+
+                    console.log(
+                        "========== ENTRA PASSWORD AUTHENTICATION COMPLETED =========="
+                    );
+
+                    console.log(
+                        "Calling handlePasswordAuthenticationCompleted()..."
+                    );
+
+                    await handlePasswordAuthenticationCompleted(
+                        result.authenticationResult
+                    );
+
+                    console.log(
+                        "Returned from handlePasswordAuthenticationCompleted()."
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // STANDARD CODE
+                // ========================================================
+
+                if (
+                    result.step === "code"
+                ) {
+
+                    console.log(
+                        "Password authentication requires code."
+                    );
+
+                    setStep(
+                        "code"
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // MFA
+                // ========================================================
+
+                if (
+                    result.step === "mfa"
+                ) {
+
+                    console.log(
+                        "Password authentication returned native MFA."
+                    );
+
+                    const methods =
+                        buildCustomMfaMethods(
+                            result.mfaMethods
+                        );
+
+                    setMfaMethods(
+                        methods
+                    );
+
+                    setSelectedMfaMethod(
+                        methods[0] ?? null
+                    );
+
+                    setStep(
+                        "mfa"
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // REGISTRATION
+                // ========================================================
+
+                if (
+                    result.step ===
+                    "authMethodRegistration"
+                ) {
+
+                    console.log(
+                        "Authentication method registration required."
+                    );
+
+                    setStep(
+                        "registration"
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // PASSWORD RESET CODE REQUIRED
+                // ========================================================
+
+                if (
+                    result?.step ===
+                    "passwordResetCode"
+                ) {
+
+                    console.log(
+                        "========== PASSWORD RESET CODE REQUIRED =========="
+                    );
+
+                    console.log(
+                        "Entra has started the password reset flow."
+                    );
+
+                    console.log(
+                        "A verification code has been sent."
+                    );
+
+                    setPasswordResetCode(
+                        ""
+                    );
+
+                    setStep(
+                        "passwordResetCode"
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // NEW PASSWORD REQUIRED
+                // ========================================================
+
+                if (
+                    result?.step ===
+                    "passwordChange"
+                ) {
+
+                    console.log(
+                        "========== NEW PASSWORD REQUIRED =========="
+                    );
+
+                    console.log(
+                        "The password reset flow is ready for a new password."
+                    );
+
+                    setNewPassword(
+                        ""
+                    );
+
+                    setConfirmPassword(
+                        ""
+                    );
+
+                    setStep(
+                        "passwordChange"
+                    );
+
+                    return;
+                }
+
+
+                // ========================================================
+                // UNEXPECTED RESULT
+                // ========================================================
+
+                console.error(
+                    "========== UNEXPECTED PASSWORD RESULT =========="
+                );
+
+                console.error(
+                    "Result:",
+                    result
+                );
+
+                console.error(
+                    "Result step:",
+                    result?.step
+                );
+
+                console.error(
+                    "Unexpected password authentication result:",
+                    result
+                );
+
+                setError(
+                    result?.message ??
+                    `Unexpected response received after password authentication. Step: ${
+                        result?.step ?? "unknown"
+                    }`
+                );
+
+            }
+            catch (error) {
+
+                console.error(
+                    "========== PASSWORD SUBMIT ERROR =========="
+                );
+
+                console.error(
+                    error
+                );
+
+                setError(
+                    error?.message ||
+                    "Password authentication failed."
+                );
+
+            }
+            finally {
+
+                setLoading(false);
+            }
+
+        }, [
+            password,
+            username,
+            clearMessages,
+            buildCustomMfaMethods,
+            handlePasswordAuthenticationCompleted
+        ]);
+
+
+    // ============================================================
+    // PASSWORD RESET CODE SUBMIT
+    //
+    // Flow:
+    //
+    // password reset started
+    //      |
+    //      v
+    // passwordResetCode
+    //      |
+    //      v
+    // submitPasswordResetCode()
+    //      |
+    //      v
+    // passwordChange
+    // ============================================================
+
+    const handlePasswordResetCodeSubmit =
+        useCallback(async () => {
 
             console.log(
-                "Authentication method registration required."
+                "========== PASSWORD RESET CODE SUBMIT =========="
             );
 
-            setStep("registration");
+            clearMessages();
 
-            return;
-        }
+            const enteredCode =
+                passwordResetCode.trim();
 
-        // ========================================================
-        // UNEXPECTED RESULT
-        // ========================================================
+            if (!enteredCode) {
 
-        console.error(
-            "========== UNEXPECTED PASSWORD RESULT =========="
-        );
+                setError(
+                    "Enter the password reset verification code."
+                );
 
-        console.error(
-            "Result:",
-            result
-        );
+                return;
+            }
 
-        console.error(
-            "Result step:",
-            result.step
-        );
+            setLoading(true);
 
-        setError(
-            "Unexpected response received after password authentication."
-        );
+            try {
 
-    }
-    catch (error) {
+                console.log(
+                    "Submitting password reset code..."
+                );
 
-        console.error(
-            "========== PASSWORD SUBMIT ERROR =========="
-        );
+                const result =
+                    await submitPasswordResetCode(
+                        enteredCode
+                    );
 
-        console.error(
-            error
-        );
+                console.log(
+                    "========== PASSWORD RESET CODE RESULT =========="
+                );
 
-        setError(
-            error?.message ||
-            "Password authentication failed."
-        );
+                console.log(
+                    "Full result:",
+                    result
+                );
 
-    }
-    finally {
+                console.log(
+                    "Result step:",
+                    result?.step
+                );
 
-        setLoading(false);
+                console.log(
+                    "Result state:",
+                    result?.state
+                );
 
-    }
-};
+
+                if (!result) {
+
+                    throw new Error(
+                        "Password reset returned no result."
+                    );
+                }
+
+
+                // ====================================================
+                // NEW PASSWORD REQUIRED
+                // ====================================================
+
+                if (
+                    result.step ===
+                    "passwordChange"
+                ) {
+
+                    console.log(
+                        "Password reset code accepted."
+                    );
+
+                    console.log(
+                        "Navigating to new-password step."
+                    );
+
+                    setNewPassword(
+                        ""
+                    );
+
+                    setConfirmPassword(
+                        ""
+                    );
+
+                    setStep(
+                        "passwordChange"
+                    );
+
+                    return;
+                }
+
+
+                // ====================================================
+                // PASSWORD RESET COMPLETED
+                //
+                // This branch is retained for compatibility.
+                // The normal password reset completion is handled
+                // by handleNewPasswordSubmit().
+                // ====================================================
+
+                if (
+                    result.step ===
+                    "passwordChanged"
+                ) {
+
+                    console.log(
+                        "Password reset completed."
+                    );
+
+                    setPasswordResetCode(
+                        ""
+                    );
+
+                    setNewPassword(
+                        ""
+                    );
+
+                    setConfirmPassword(
+                        ""
+                    );
+
+                    setSuccess(
+                        "Your password has been changed successfully."
+                    );
+
+                    setStep(
+                        "password"
+                    );
+
+                    return;
+                }
+
+
+                // ====================================================
+                // ERROR
+                // ====================================================
+
+                if (
+                    result.success === false
+                ) {
+
+                    setError(
+                        result.message ||
+                        "Unable to verify the password reset code."
+                    );
+
+                    return;
+                }
+
+
+                console.warn(
+                    "Unhandled password reset code result:",
+                    result
+                );
+
+                setError(
+                    result.message ||
+                    "Unexpected response received while verifying the password reset code."
+                );
+
+            }
+            catch (error) {
+
+                console.error(
+                    "========== PASSWORD RESET CODE ERROR =========="
+                );
+
+                console.error(
+                    error
+                );
+
+                setError(
+                    error?.message ||
+                    "Unable to verify the password reset code."
+                );
+
+            }
+            finally {
+
+                setLoading(false);
+            }
+
+        }, [
+            passwordResetCode,
+            clearMessages
+        ]);
+
+
+    // ============================================================
+    // SUBMIT NEW PASSWORD
+    //
+    // Flow:
+    //
+    // passwordResetCode
+    //      |
+    //      v
+    // passwordChange
+    //      |
+    //      v
+    // submitNewPassword()
+    //      |
+    //      v
+    // passwordChanged
+    //      |
+    //      v
+    // clear old authentication state
+    //      |
+    //      v
+    // startSignIn(username)
+    //      |
+    //      v
+    // NEW authentication transaction
+    // ============================================================
+
+    const handleNewPasswordSubmit =
+        useCallback(async () => {
+
+            console.log(
+                "========== NEW PASSWORD SUBMIT =========="
+            );
+
+            clearMessages();
+
+            const cleanNewPassword =
+                String(
+                    newPassword ?? ""
+                );
+
+            const cleanConfirmPassword =
+                String(
+                    confirmPassword ?? ""
+                );
+
+
+            // ====================================================
+            // VALIDATION
+            // ====================================================
+
+            if (!cleanNewPassword) {
+
+                setError(
+                    "Please enter your new password."
+                );
+
+                return;
+            }
+
+
+            if (!cleanConfirmPassword) {
+
+                setError(
+                    "Please confirm your new password."
+                );
+
+                return;
+            }
+
+
+            if (
+                cleanNewPassword !==
+                cleanConfirmPassword
+            ) {
+
+                setError(
+                    "The new passwords do not match."
+                );
+
+                return;
+            }
+
+
+            setLoading(true);
+
+
+            try {
+
+                // =================================================
+                // CHANGE PASSWORD
+                // =================================================
+
+                console.log(
+                    "Submitting new password..."
+                );
+
+                const result =
+                    await submitNewPassword(
+                        cleanNewPassword
+                    );
+
+                console.log(
+                    "========== NEW PASSWORD RESULT =========="
+                );
+
+                console.log(
+                    "Full result:",
+                    result
+                );
+
+                console.log(
+                    "Result step:",
+                    result?.step
+                );
+
+
+                if (!result) {
+
+                    throw new Error(
+                        "Password change returned no result."
+                    );
+                }
+
+
+                // =================================================
+                // PASSWORD CHANGED
+                //
+                // IMPORTANT:
+                //
+                // The password-reset transaction is now finished.
+                //
+                // We MUST NOT call submitPassword() until a NEW
+                // startSignIn() transaction has been created.
+                // =================================================
+
+                if (
+                    result.step ===
+                    "passwordChanged"
+                ) {
+
+                    console.log(
+                        "========== PASSWORD CHANGE COMPLETED =========="
+                    );
+
+                    console.log(
+                        "The password-reset transaction is finished."
+                    );
+
+
+                    // =================================================
+                    // CLEAR OLD RESET TRANSACTION
+                    // =================================================
+
+                    clearSignInState();
+
+
+                    // =================================================
+                    // CLEAR OLD PASSWORD/RESET UI STATE
+                    // =================================================
+
+                    setPassword("");
+
+                    setPasswordResetCode("");
+
+                    setNewPassword("");
+
+                    setConfirmPassword("");
+
+
+                    // =================================================
+                    // IMPORTANT:
+                    //
+                    // Start a BRAND-NEW sign-in transaction.
+                    //
+                    // Without this, submitPassword() produces:
+                    //
+                    // "No authentication state is active."
+                    // =================================================
+
+                    console.log(
+                        "========== STARTING NEW SIGN-IN AFTER PASSWORD CHANGE =========="
+                    );
+
+                    console.log(
+                        "Username for new sign-in:",
+                        username
+                    );
+
+
+                    const signInResult =
+                        await startSignIn(
+                            username
+                        );
+
+
+                    console.log(
+                        "========== NEW SIGN-IN RESULT =========="
+                    );
+
+                    console.log(
+                        "Full result:",
+                        signInResult
+                    );
+
+                    console.log(
+                        "New sign-in step:",
+                        signInResult?.step
+                    );
+
+
+                    if (!signInResult) {
+
+                        throw new Error(
+                            "Unable to start a new sign-in after changing the password."
+                        );
+                    }
+
+
+                    // =================================================
+                    // NEW SIGN-IN PASSWORD
+                    // =================================================
+
+                    if (
+                        signInResult?.step ===
+                        "password"
+                    ) {
+
+                        console.log(
+                            "New sign-in requires password."
+                        );
+
+                        setSuccess(
+                            "Your password has been changed successfully. Please enter your new password."
+                        );
+
+                        setStep(
+                            "password"
+                        );
+
+                        return;
+                    }
+
+
+                    // =================================================
+                    // NEW SIGN-IN CODE
+                    // =================================================
+
+                    if (
+                        signInResult?.step ===
+                        "code"
+                    ) {
+
+                        console.log(
+                            "New sign-in requires verification code."
+                        );
+
+                        setSuccess(
+                            "Your password has been changed successfully. A verification code is required."
+                        );
+
+                        setStep(
+                            "code"
+                        );
+
+                        return;
+                    }
+
+
+                    // =================================================
+                    // NEW SIGN-IN MFA
+                    // =================================================
+
+                    if (
+                        signInResult?.step ===
+                        "mfa"
+                    ) {
+
+                        console.log(
+                            "New sign-in requires MFA."
+                        );
+
+                        const methods =
+                            buildCustomMfaMethods(
+                                signInResult?.mfaMethods
+                            );
+
+                        setMfaMethods(
+                            methods
+                        );
+
+                        setSelectedMfaMethod(
+                            methods[0] ?? null
+                        );
+
+                        setSuccess(
+                            "Your password has been changed successfully. MFA is required."
+                        );
+
+                        setStep(
+                            "mfa"
+                        );
+
+                        return;
+                    }
+
+
+                    // =================================================
+                    // NEW SIGN-IN REGISTRATION
+                    // =================================================
+
+                    if (
+                        signInResult?.step ===
+                        "authMethodRegistration"
+                    ) {
+
+                        console.log(
+                            "New sign-in requires authentication method registration."
+                        );
+
+                        setSuccess(
+                            "Your password has been changed successfully. Authentication method registration is required."
+                        );
+
+                        setStep(
+                            "registration"
+                        );
+
+                        return;
+                    }
+
+
+                    // =================================================
+                    // NEW SIGN-IN COMPLETED DIRECTLY
+                    // =================================================
+
+                    if (
+                        signInResult?.step ===
+                        "completed"
+                    ) {
+
+                        console.log(
+                            "New sign-in completed directly."
+                        );
+
+                        await handleAuthenticationCompleted(
+                            signInResult.authenticationResult
+                        );
+
+                        return;
+                    }
+
+
+                    // =================================================
+                    // UNEXPECTED NEW SIGN-IN STEP
+                    // =================================================
+
+                    console.error(
+                        "Unexpected result after starting new sign-in:",
+                        signInResult
+                    );
+
+                    setError(
+                        signInResult?.message ||
+                        `Unable to continue sign-in after password change. Step: ${
+                            signInResult?.step ||
+                            "unknown"
+                        }`
+                    );
+
+                    return;
+                }
+
+
+                // =================================================
+                // PASSWORD STILL REQUIRED
+                // =================================================
+
+                if (
+                    result.step ===
+                    "passwordChange"
+                ) {
+
+                    setStep(
+                        "passwordChange"
+                    );
+
+                    if (result.message) {
+
+                        setError(
+                            result.message
+                        );
+                    }
+
+                    return;
+                }
+
+
+                // =================================================
+                // PASSWORD RESET CODE AGAIN
+                // =================================================
+
+                if (
+                    result.step ===
+                    "passwordResetCode"
+                ) {
+
+                    setStep(
+                        "passwordResetCode"
+                    );
+
+                    return;
+                }
+
+
+                // =================================================
+                // FAILURE
+                // =================================================
+
+                if (
+                    result.success === false
+                ) {
+
+                    setError(
+                        result.message ||
+                        "Unable to change the password."
+                    );
+
+                    return;
+                }
+
+
+                // =================================================
+                // UNHANDLED RESULT
+                // =================================================
+
+                console.warn(
+                    "Unhandled new-password result:",
+                    result
+                );
+
+                setError(
+                    result.message ||
+                    "Unexpected response received while changing the password."
+                );
+
+            }
+            catch (error) {
+
+                console.error(
+                    "========== NEW PASSWORD ERROR =========="
+                );
+
+                console.error(
+                    error
+                );
+
+                setError(
+                    error?.message ||
+                    "Unable to change the password."
+                );
+
+            }
+            finally {
+
+                setLoading(false);
+            }
+
+        }, [
+            newPassword,
+            confirmPassword,
+            username,
+            clearMessages,
+            buildCustomMfaMethods,
+            handleAuthenticationCompleted
+        ]);
+
+
     // ============================================================
     // MFA METHOD SELECTION
     // ============================================================
@@ -1206,10 +2080,13 @@ const useNativeLogin = () => {
 
             clearMessages();
 
+            setSelectedMfaMethod(
+                method
+            );
 
-            setSelectedMfaMethod(method);
-
-            setActiveMfaMethod(method);
+            setActiveMfaMethod(
+                method
+            );
 
 
             // ====================================================
@@ -1223,7 +2100,9 @@ const useNativeLogin = () => {
 
                 setCode("");
 
-                setStep("mfaCode");
+                setStep(
+                    "mfaCode"
+                );
 
                 return;
             }
@@ -1235,7 +2114,6 @@ const useNativeLogin = () => {
 
             setLoading(true);
 
-
             try {
 
                 const result =
@@ -1243,14 +2121,14 @@ const useNativeLogin = () => {
                         method
                     );
 
-
                 console.log(
                     "Native MFA challenge result:",
                     result
                 );
 
-
-                setStep("mfaCode");
+                setStep(
+                    "mfaCode"
+                );
 
             }
             catch (err) {
@@ -1259,7 +2137,6 @@ const useNativeLogin = () => {
                     "Unable to request MFA challenge:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1288,10 +2165,8 @@ const useNativeLogin = () => {
 
             clearMessages();
 
-
             const enteredCode =
                 code.trim();
-
 
             if (!enteredCode) {
 
@@ -1301,7 +2176,6 @@ const useNativeLogin = () => {
 
                 return;
             }
-
 
             if (
                 enteredCode.length !== 6 ||
@@ -1315,9 +2189,7 @@ const useNativeLogin = () => {
                 return;
             }
 
-
             setLoading(true);
-
 
             try {
 
@@ -1335,24 +2207,20 @@ const useNativeLogin = () => {
                             enteredCode
                         );
 
-
                     if (result.success) {
 
                         setIsApplicationAuthenticated(
                             true
                         );
 
-
                         setSuccess(
                             result.message
                         );
-
 
                         setStep(
                             "authenticated"
                         );
                     }
-
 
                     return;
                 }
@@ -1366,7 +2234,6 @@ const useNativeLogin = () => {
                     await submitMfaChallenge(
                         enteredCode
                     );
-
 
                 if (
                     result?.step ===
@@ -1394,7 +2261,6 @@ const useNativeLogin = () => {
                     err
                 );
 
-
                 setError(
                     err?.message ||
                     "MFA verification failed."
@@ -1417,19 +2283,6 @@ const useNativeLogin = () => {
 
     // ============================================================
     // NEW USER ENROLLMENT CODE SUBMIT
-    //
-    // Flow:
-    //
-    // /api/mfa/enrol/verify
-    //       |
-    //       v
-    // UserMfas created
-    //       |
-    //       v
-    // /api/mfa/verify
-    //       |
-    //       v
-    // mfa_session cookie created
     // ============================================================
 
     const handleEnrollmentSubmit =
@@ -1437,10 +2290,8 @@ const useNativeLogin = () => {
 
             clearMessages();
 
-
             const enteredCode =
                 enrollmentCode.trim();
-
 
             if (!enteredCode) {
 
@@ -1450,7 +2301,6 @@ const useNativeLogin = () => {
 
                 return;
             }
-
 
             if (
                 enteredCode.length !== 6 ||
@@ -1464,9 +2314,7 @@ const useNativeLogin = () => {
                 return;
             }
 
-
             setLoading(true);
-
 
             try {
 
@@ -1489,16 +2337,13 @@ const useNativeLogin = () => {
                 // =================================================
                 // STEP 2
                 //
-                // Use the same code against /api/mfa/verify.
-                //
-                // This creates the mfa_session cookie.
+                // Create mfa_session cookie.
                 // =================================================
 
                 const result =
                     await verifyApplicationAuthenticator(
                         enteredCode
                     );
-
 
                 if (!result.success) {
 
@@ -1516,37 +2361,30 @@ const useNativeLogin = () => {
                     true
                 );
 
-
                 setMfaEnrollmentStatus({
                     enrolled: true,
                     enabled: true
                 });
 
-
                 const authenticatorMethod = {
                     ...APPLICATION_AUTHENTICATOR_METHOD
                 };
-
 
                 setMfaMethods([
                     authenticatorMethod
                 ]);
 
-
                 setSelectedMfaMethod(
                     authenticatorMethod
                 );
-
 
                 setActiveMfaMethod(
                     authenticatorMethod
                 );
 
-
                 setSuccess(
                     "Microsoft Authenticator enrollment completed successfully."
                 );
-
 
                 setStep(
                     "authenticated"
@@ -1559,7 +2397,6 @@ const useNativeLogin = () => {
                     "MFA enrollment error:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1591,7 +2428,6 @@ const useNativeLogin = () => {
 
             setLoading(true);
 
-
             try {
 
                 const result =
@@ -1599,12 +2435,10 @@ const useNativeLogin = () => {
                         code
                     );
 
-
                 console.log(
                     "Verification code result:",
                     result
                 );
-
 
                 if (
                     result?.step === "mfa"
@@ -1614,7 +2448,9 @@ const useNativeLogin = () => {
                         buildCustomMfaMethods()
                     );
 
-                    setStep("mfa");
+                    setStep(
+                        "mfa"
+                    );
 
                 }
                 else if (
@@ -1641,7 +2477,6 @@ const useNativeLogin = () => {
                     "Verification code error:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1671,17 +2506,14 @@ const useNativeLogin = () => {
 
             setLoading(true);
 
-
             try {
 
                 const result =
                     await getRegistrationMethods();
 
-
                 setRegistrationMethods(
                     result || []
                 );
-
 
                 setStep(
                     "registration"
@@ -1694,7 +2526,6 @@ const useNativeLogin = () => {
                     "Unable to load registration methods:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1717,7 +2548,6 @@ const useNativeLogin = () => {
 
             setLoading(true);
 
-
             try {
 
                 const result =
@@ -1725,17 +2555,14 @@ const useNativeLogin = () => {
                         selectedRegistrationMethod
                     );
 
-
                 console.log(
                     "Registration result:",
                     result
                 );
 
-
                 setRegistrationState(
                     result
                 );
-
 
                 setStep(
                     "registration-code"
@@ -1748,7 +2575,6 @@ const useNativeLogin = () => {
                     "Registration error:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1774,7 +2600,6 @@ const useNativeLogin = () => {
 
             setLoading(true);
 
-
             try {
 
                 const result =
@@ -1782,12 +2607,10 @@ const useNativeLogin = () => {
                         registrationCode
                     );
 
-
                 console.log(
                     "Registration verification result:",
                     result
                 );
-
 
                 if (
                     result?.authenticationResult
@@ -1804,11 +2627,9 @@ const useNativeLogin = () => {
                         result
                     );
 
-
                     setSuccess(
                         "Registration completed."
                     );
-
 
                     setStep(
                         "registration"
@@ -1822,7 +2643,6 @@ const useNativeLogin = () => {
                     "Registration verification error:",
                     err
                 );
-
 
                 setError(
                     err?.message ||
@@ -1860,7 +2680,6 @@ const useNativeLogin = () => {
                     false
                 );
 
-
                 setStep(
                     "mfaCode"
                 );
@@ -1873,10 +2692,13 @@ const useNativeLogin = () => {
                 step === "mfaEnrollment"
             ) {
 
-                setEnrollmentData(null);
+                setEnrollmentData(
+                    null
+                );
 
-                setEnrollmentCode("");
-
+                setEnrollmentCode(
+                    ""
+                );
 
                 setStep(
                     "password"
@@ -1890,8 +2712,9 @@ const useNativeLogin = () => {
                 step === "mfaCode"
             ) {
 
-                setCode("");
-
+                setCode(
+                    ""
+                );
 
                 setStep(
                     "mfa"
@@ -1914,11 +2737,48 @@ const useNativeLogin = () => {
 
 
             if (
+                step === "passwordResetCode"
+            ) {
+
+                setPasswordResetCode(
+                    ""
+                );
+
+                setStep(
+                    "password"
+                );
+
+                return;
+            }
+
+
+            if (
+                step === "passwordChange"
+            ) {
+
+                setNewPassword(
+                    ""
+                );
+
+                setConfirmPassword(
+                    ""
+                );
+
+                setStep(
+                    "passwordResetCode"
+                );
+
+                return;
+            }
+
+
+            if (
                 step === "password"
             ) {
 
-                setPassword("");
-
+                setPassword(
+                    ""
+                );
 
                 setStep(
                     "email"
@@ -1932,8 +2792,9 @@ const useNativeLogin = () => {
                 step === "code"
             ) {
 
-                setCode("");
-
+                setCode(
+                    ""
+                );
 
                 setStep(
                     "password"
@@ -1959,8 +2820,9 @@ const useNativeLogin = () => {
                 step === "registration-code"
             ) {
 
-                setRegistrationCode("");
-
+                setRegistrationCode(
+                    ""
+                );
 
                 setStep(
                     "registration"
@@ -1984,13 +2846,17 @@ const useNativeLogin = () => {
                 false
             );
 
-
             setUsername("");
 
             setPassword("");
 
             setCode("");
 
+            setPasswordResetCode("");
+
+            setNewPassword("");
+
+            setConfirmPassword("");
 
             setMfaMethods([]);
 
@@ -1998,13 +2864,11 @@ const useNativeLogin = () => {
 
             setActiveMfaMethod(null);
 
-
             setMfaEnrollmentStatus(null);
 
             setEnrollmentData(null);
 
             setEnrollmentCode("");
-
 
             setRegistrationMethods([]);
 
@@ -2016,20 +2880,16 @@ const useNativeLogin = () => {
 
             setRegistrationState(null);
 
-
             setError("");
 
             setSuccess("");
 
-
             nativeAuthenticationResultRef.current =
                 null;
-
 
             clearCompletedAuthenticationResult();
 
             clearSignInState();
-
 
             setStep(
                 "email"
@@ -2089,6 +2949,7 @@ const useNativeLogin = () => {
         mfaMethods,
 
         selectedMfaMethod,
+
         setSelectedMfaMethod,
 
         activeMfaMethod,
@@ -2098,6 +2959,7 @@ const useNativeLogin = () => {
         enrollmentData,
 
         enrollmentCode,
+
         setEnrollmentCode,
 
 
@@ -2108,12 +2970,15 @@ const useNativeLogin = () => {
         registrationMethods,
 
         selectedRegistrationMethod,
+
         setSelectedRegistrationMethod,
 
         registrationContact,
+
         setRegistrationContact,
 
         registrationCode,
+
         setRegistrationCode,
 
         registrationState,
@@ -2132,9 +2997,11 @@ const useNativeLogin = () => {
         success,
 
         showPassword,
+
         setShowPassword,
 
         remember,
+
         setRemember,
 
 
@@ -2145,6 +3012,10 @@ const useNativeLogin = () => {
         handleEmailSubmit,
 
         handlePasswordSubmit,
+
+        handlePasswordResetCodeSubmit,
+
+        handleNewPasswordSubmit,
 
         handleCodeSubmit,
 
@@ -2205,9 +3076,28 @@ const useNativeLogin = () => {
 
         loadRegistrationMethods,
 
-        selectPreferredRegistrationMethod
+        selectPreferredRegistrationMethod,
+
+
+        // --------------------------------------------
+        // Password reset
+        // --------------------------------------------
+
+        passwordResetCode,
+
+        setPasswordResetCode,
+
+        newPassword,
+
+        setNewPassword,
+
+        confirmPassword,
+
+        setConfirmPassword
+
     };
 };
 
 
 export default useNativeLogin;
+

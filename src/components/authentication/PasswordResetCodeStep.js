@@ -7,13 +7,12 @@ import {
 } from "@mui/material";
 
 
-const PasswordChangeStep = ({
-    newPassword,
-    setNewPassword,
-    confirmPassword,
-    setConfirmPassword,
+const PasswordResetCodeStep = ({
+    username,
+    passwordResetCode,
+    setPasswordResetCode,
     loading,
-    handleNewPasswordSubmit,
+    handlePasswordResetCodeSubmit,
     handleBack,
     primaryButtonSx,
     backButtonSx
@@ -30,7 +29,7 @@ const PasswordChangeStep = ({
                     mb: 1
                 }}
             >
-                Create a new password
+                Verify your password reset
             </Typography>
 
 
@@ -42,49 +41,40 @@ const PasswordChangeStep = ({
                     lineHeight: 1.6
                 }}
             >
-                Your verification code has been
-                accepted. Please enter a new password
-                for your account.
+                Your password has expired. A verification
+                code has been sent to the email address
+                associated with your account.
             </Typography>
 
 
+            {username && (
+                <Typography
+                    sx={{
+                        fontSize: 13,
+                        color: "#546078",
+                        mb: 2
+                    }}
+                >
+                    Account: {username}
+                </Typography>
+            )}
+
+
             <TextField
                 fullWidth
-                type="password"
-                label="New password"
-                value={newPassword}
+                label="Verification code"
+                value={passwordResetCode}
                 onChange={(event) =>
-                    setNewPassword(
+                    setPasswordResetCode(
                         event.target.value
                     )
                 }
-                placeholder="Enter new password"
-                autoComplete="new-password"
+                placeholder="Enter verification code"
+                autoComplete="one-time-code"
                 disabled={loading}
-                sx={{
-                    mb: 2,
-
-                    "& .MuiOutlinedInput-root": {
-                        borderRadius: "14px",
-                        backgroundColor: "#fff"
-                    }
+                inputProps={{
+                    inputMode: "numeric"
                 }}
-            />
-
-
-            <TextField
-                fullWidth
-                type="password"
-                label="Confirm new password"
-                value={confirmPassword}
-                onChange={(event) =>
-                    setConfirmPassword(
-                        event.target.value
-                    )
-                }
-                placeholder="Confirm new password"
-                autoComplete="new-password"
-                disabled={loading}
                 sx={{
                     mb: 2,
 
@@ -101,11 +91,10 @@ const PasswordChangeStep = ({
                 fullWidth
                 disabled={
                     loading ||
-                    !newPassword ||
-                    !confirmPassword
+                    !passwordResetCode?.trim()
                 }
                 onClick={
-                    handleNewPasswordSubmit
+                    handlePasswordResetCodeSubmit
                 }
                 sx={{
                     ...primaryButtonSx,
@@ -117,8 +106,8 @@ const PasswordChangeStep = ({
                 }}
             >
                 {loading
-                    ? "Changing Password..."
-                    : "Change Password"}
+                    ? "Verifying..."
+                    : "Verify Code"}
             </Button>
 
 
@@ -139,5 +128,5 @@ const PasswordChangeStep = ({
 };
 
 
-export default PasswordChangeStep;
+export default PasswordResetCodeStep;
 

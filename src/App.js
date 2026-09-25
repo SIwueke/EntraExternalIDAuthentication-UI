@@ -416,6 +416,13 @@ function MsalDemoPage() {
             ]
         );
 
+    const handleOpenNativeLogin = useCallback(() => {
+        clearApplicationAuthentication();
+        navigate("/login");
+    }, [
+        clearApplicationAuthentication,
+        navigate,
+    ]);
 
     // --------------------------------------------------------
     // CLEAR NATIVE AUTHENTICATION
@@ -541,9 +548,12 @@ function MsalDemoPage() {
                     Test Bed
                 </Link>
 
-                <Link to="/login">
+                <button
+                    type="button"
+                    onClick={handleOpenNativeLogin}
+                >
                     Native Login
-                </Link>
+                </button>
 
                 <Link to="/native-login-test">
                     Native Login Test
@@ -627,14 +637,20 @@ function MsalDemoPage() {
                 {!isApplicationAuthenticated && (
                     <button
                         type="button"
-                        onClick={() =>
-                            navigate(
-                                "/login"
-                            )
-                        }
+                        onClick={handleOpenNativeLogin}
                     >
                         Sign in with Native Authentication
                     </button>
+                    // <button
+                    //     type="button"
+                    //     onClick={() =>
+                    //         navigate(
+                    //             "/login"
+                    //         )
+                    //     }
+                    // >
+                    //     Sign in with Native Authentication
+                    // </button>
                 )}
 
 
