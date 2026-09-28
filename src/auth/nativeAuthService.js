@@ -1450,11 +1450,49 @@ const processAuthenticationResult = async (
     };
 };
 
-const signOutExistingNativeUser = async () => {
-    try {
-        const authClient = await getNativeAuthClient();
+// ============================================================
+// SIGN OUT EXISTING NATIVE USER
+// ============================================================
+//
+// Native authentication keeps the currently authenticated
+// account in the MSAL browser cache.
+//
+// We must clear that local account before calling:
+//
+//     authClient.signIn({ username })
+//
+// Otherwise Custom Auth rejects the request with:
+//
+//     UserAlreadySignedInError
+//
+// IMPORTANT:
+//
+// Do NOT use logoutPopup() here.
+//
+// logoutPopup() starts the normal MSAL server-side logout
+// flow and previously caused:
+//
+//     endpoints_resolution_error
+//
+// clearCache() removes the cached native authentication
+// account without starting the server logout navigation.
+// ============================================================
 
-        const currentAccount =
+export const signOutExistingNativeUser = async () => {
+
+    try {
+
+        const authClient =
+            await getNativeAuthClient();
+
+        // ------------------------------------------------------
+        // Get the current native account.
+        //
+        // getCurrentAccount() returns a result wrapper.
+        // The actual CustomAuthAccountData is in .data.
+        // ------------------------------------------------------
+
+        const accountResult =
             authClient.getCurrentAccount?.();
 
         console.log(
@@ -1462,11 +1500,34 @@ const signOutExistingNativeUser = async () => {
         );
 
         console.log(
-            "Current account:",
-            currentAccount
+            "Current account result:",
+            accountResult
         );
 
+        console.log(
+            "Current account result state:",
+            accountResult?.state
+        );
+
+        console.log(
+            "Current account result state constructor:",
+            accountResult?.state?.constructor?.name
+        );
+
+        console.log(
+            "Current account data:",
+            accountResult?.data
+        );
+
+        const currentAccount =
+            accountResult?.data ?? null;
+
+        // ------------------------------------------------------
+        // No native account is currently cached.
+        // ------------------------------------------------------
+
         if (!currentAccount) {
+
             console.log(
                 "No existing native-authenticated user."
             );
@@ -1477,38 +1538,135 @@ const signOutExistingNativeUser = async () => {
             };
         }
 
+        // ------------------------------------------------------
+        // CustomAuthAccountData contains the actual MSAL
+        // AccountInfo under:
+        //
+        //     currentAccount.account
+        //
+        // The username is therefore:
+        //
+        //     currentAccount.account.username
+        // ------------------------------------------------------
+
+        const accountInfo =
+            currentAccount?.account ?? null;
+
+        const existingUsername =
+            accountInfo?.username ??
+            null;
+
         console.log(
-            "Existing user detected:",
-            currentAccount?.username ??
-            currentAccount?.data?.username ??
-            "(username unavailable)"
+            "Existing native user:",
+            existingUsername
         );
 
+        console.log(
+            "Existing native homeAccountId:",
+            accountInfo?.homeAccountId
+        );
+
+        console.log(
+            "Existing native localAccountId:",
+            accountInfo?.localAccountId
+        );
+
+        console.log(
+            "Existing native oid:",
+            accountInfo?.idTokenClaims?.oid
+        );
+
+        // ------------------------------------------------------
+        // clearCache() is inherited from PublicClientApplication.
+        //
+        // It clears the local MSAL account/token cache.
+        //
+        // It does NOT call logoutPopup().
+        // ------------------------------------------------------
+
         if (
-            typeof authClient.logoutPopup !==
+            typeof authClient.clearCache !==
             "function"
         ) {
+
             throw new Error(
-                "The native authentication client does not support logoutPopup()."
+                "The native authentication client does not support clearCache()."
             );
         }
 
         console.log(
-            "Signing out existing native user..."
+            "========== CLEARING EXISTING NATIVE ACCOUNT CACHE =========="
         );
 
-        await authClient.logoutPopup();
+        await authClient.clearCache({
+            account: accountInfo
+        });
 
         console.log(
-            "Existing native user signed out."
+            "========== EXISTING NATIVE ACCOUNT CACHE CLEARED =========="
+        );
+
+        // ------------------------------------------------------
+        // Verify that the native client no longer considers
+        // User 1 to be signed in.
+        // ------------------------------------------------------
+
+        const verificationResult =
+            authClient.getCurrentAccount?.();
+
+        const remainingAccount =
+            verificationResult?.data ?? null;
+
+        console.log(
+            "Account after clearCache():",
+            remainingAccount
+        );
+
+        if (remainingAccount) {
+
+            console.error(
+                "Native account still exists after clearCache().",
+                remainingAccount
+            );
+
+            return {
+                success: false,
+                signedOut: false,
+                message:
+                    "The existing native account could not be cleared."
+            };
+        }
+
+        // ------------------------------------------------------
+        // Clear application-side authentication state.
+        //
+        // This does NOT remove the user's Entra account,
+        // password, or MFA registration.
+        //
+        // It only resets this application's current
+        // authentication workflow.
+        // ------------------------------------------------------
+
+        signInState = null;
+
+        currentUsername = null;
+
+        passwordResetState = null;
+
+        completedAuthenticationResult = null;
+
+        console.log(
+            "========== EXISTING NATIVE USER SIGNED OUT LOCALLY =========="
         );
 
         return {
             success: true,
-            signedOut: true
+            signedOut: true,
+            username: existingUsername
         };
 
-    } catch (error) {
+    }
+    catch (error) {
 
         console.error(
             "Failed to sign out existing native user:",
@@ -1526,410 +1684,617 @@ const signOutExistingNativeUser = async () => {
 };
 
 // ============================================================
-// START SIGN-IN
+// SWITCH NATIVE ACCOUNT
+// ============================================================
+//
+// This is used when the currently authenticated user explicitly
+// chooses:
+//
+//     "Sign in with a different account"
+//
+// IMPORTANT:
+//
+// Do NOT use:
+//
+//     logoutPopup()
+//     logoutRedirect()
+//
+// Those operations initiate the normal MSAL server-side logout
+// flow and can cause:
+//
+//     endpoints_resolution_error
+//
+// For account switching we only need to remove the current
+// Custom Auth account from the local MSAL cache.
+//
+// signOutExistingNativeUser() already performs exactly that
+// operation using:
+//
+//     authClient.clearCache({ account })
+//
+// After the local account is cleared, the React layer can start
+// a completely new:
+//
+//     email -> password -> MFA
+//
+// authentication flow.
 // ============================================================
 
-export const startSignIn = async (
-    username
-) => {
+export const switchNativeAccount = async () => {
+
+    console.log(
+        "========== SWITCH NATIVE ACCOUNT =========="
+    );
+
+    try {
+
+        const result =
+            await signOutExistingNativeUser();
+
+        console.log(
+            "signOutExistingNativeUser() result:",
+            result
+        );
+
+        if (!result?.success) {
+
+            console.error(
+                "Unable to clear existing native account:",
+                result
+            );
+
+            return {
+
+                success: false,
+
+                signedOut: false,
+
+                step: "alreadyAuthenticated",
+
+                message:
+                    result?.message ??
+                    "Unable to clear the existing account."
+
+            };
+        }
+
+        console.log(
+            "========== NATIVE ACCOUNT SWITCH READY =========="
+        );
+
+        console.log(
+            "Previous account:",
+            result?.username ?? null
+        );
+
+        return {
+
+            success: true,
+
+            signedOut: true,
+
+            step: "signedOut",
+
+            username:
+                result?.username ?? null
+
+        };
+
+    }
+    catch (error) {
+
+        console.error(
+            "========== SWITCH NATIVE ACCOUNT FAILED =========="
+        );
+
+        console.error(
+            "Error:",
+            error
+        );
+
+        return {
+
+            success: false,
+
+            signedOut: false,
+
+            step: "alreadyAuthenticated",
+
+            message:
+                error?.message ??
+                "Unable to switch accounts."
+
+        };
+    }
+};
+
+// ============================================================
+// START SIGN-IN
+// ============================================================
+export const startSignIn = async (username) => {
 
     try {
 
         const cleanUsername =
             String(username ?? "").trim();
 
-
         if (!cleanUsername) {
-
             return {
-
                 success: false,
-
                 step: "email",
-
                 message:
                     "Please enter your email address."
-
             };
-
         }
 
+        const authClient =
+            await getNativeAuthClient();
 
-        // ------------------------------------------------------
-        // Store username for the complete authentication session
-        // ------------------------------------------------------
+        console.log(
+            "=================================================="
+        );
 
-        currentUsername =   cleanUsername;
-        // ------------------------------------------------------
-        // Clear stale password reset state
-        // ------------------------------------------------------
-        currentUsername = cleanUsername;
+        console.log(
+            "========== START SIGN-IN ========================="
+        );
 
+        console.log(
+            "Requested username:",
+            cleanUsername
+        );
 
-        // ------------------------------------------------------
-        // Start a completely fresh native sign-in flow
-        // ------------------------------------------------------
+        console.log(
+            "=================================================="
+        );
+
+        // ============================================================
+        // CHECK FOR AN EXISTING CUSTOM AUTH ACCOUNT
+        // ============================================================
+        //
+        // IMPORTANT:
+        //
+        // getCurrentAccount() returns a result wrapper.
+        //
+        // The actual CustomAuthAccountData is:
+        //
+        //     accountResult.data
+        //
+        // The actual MSAL AccountInfo is:
+        //
+        //     accountResult.data.account
+        //
+        // ============================================================
+
+        const accountResult =
+            authClient.getCurrentAccount?.();
+
+        const existingAccount =
+            accountResult?.data ?? null;
+
+        const existingAccountInfo =
+            existingAccount?.account ?? null;
+
+        const existingUsername =
+            existingAccountInfo?.username ?? null;
+
+        console.log(
+            "========== EXISTING ACCOUNT CHECK =========="
+        );
+
+        console.log(
+            "GetCurrentAccount result:",
+            accountResult
+        );
+
+        console.log(
+            "GetCurrentAccount state:",
+            accountResult?.state
+        );
+
+        console.log(
+            "GetCurrentAccount state constructor:",
+            accountResult?.state?.constructor?.name
+        );
+
+        console.log(
+            "Existing Custom Auth account:",
+            existingAccount
+        );
+
+        console.log(
+            "Existing MSAL account:",
+            existingAccountInfo
+        );
+
+        console.log(
+            "Existing username:",
+            existingUsername
+        );
+
+        console.log(
+            "Requested username:",
+            cleanUsername
+        );
+
+        // ============================================================
+        // USER IS ALREADY AUTHENTICATED
+        // ============================================================
+        //
+        // IMPORTANT:
+        //
+        // DO NOT call:
+        //
+        //     authClient.signIn()
+        //
+        // DO NOT call:
+        //
+        //     authClient.clearCache()
+        //
+        // DO NOT start:
+        //
+        //     email -> password -> MFA
+        //
+        // The user is already authenticated.
+        //
+        // Account switching is handled separately by:
+        //
+        //     switchNativeAccount()
+        //
+        // ============================================================
+
+        if (existingAccountInfo) {
+
+            console.log(
+                "=================================================="
+            );
+
+            console.log(
+                "========== USER ALREADY AUTHENTICATED ============"
+            );
+
+            console.log(
+                "Existing username:",
+                existingUsername
+            );
+
+            console.log(
+                "Requested username:",
+                cleanUsername
+            );
+
+            console.log(
+                "=================================================="
+            );
+
+            return {
+                success: true,
+
+                step: "alreadyAuthenticated",
+
+                state:
+                    accountResult?.state ?? null,
+
+                account:
+                    existingAccountInfo,
+
+                authenticationResult:
+                    existingAccount,
+
+                username:
+                    existingUsername,
+
+                requestedUsername:
+                    cleanUsername,
+
+                message:
+                    "A user is already authenticated."
+            };
+        }
+
+        // ============================================================
+        // NO EXISTING AUTHENTICATED USER
+        // ============================================================
+        //
+        // This is the ONLY path that starts the normal native
+        // authentication flow.
+        //
+        // ============================================================
+
+        console.log(
+            "========== NO EXISTING NATIVE USER =========="
+        );
+
+        console.log(
+            "Starting normal native authentication flow."
+        );
+
+        // ------------------------------------------------------------
+        // Reset the sign-in state for the NEW user.
+        // ------------------------------------------------------------
 
         signInState = null;
+
+        currentUsername =
+            cleanUsername;
 
         passwordResetState = null;
 
         completedAuthenticationResult = null;
-       const authClient = await getNativeAuthClient();
+
+        // ------------------------------------------------------------
+        // Start native authentication.
+        // ------------------------------------------------------------
 
         console.log(
-            "========== CUSTOM AUTH CLIENT METHODS =========="
+            "========== STARTING NATIVE SIGN-IN =========="
         );
 
-        console.log(
-            "authClient:",
-            authClient
-        );
-
-        console.log(
-            "authClient constructor:",
-            authClient?.constructor?.name
-        );
-
-        console.log(
-            "signOut:",
-            typeof authClient?.signOut
-        );
-
-        console.log(
-            "logout:",
-            typeof authClient?.logout
-        );
-
-        console.log(
-            "logoutRedirect:",
-            typeof authClient?.logoutRedirect
-        );
-
-        console.log(
-            "logoutPopup:",
-            typeof authClient?.logoutPopup
-        );
-
-        console.log(
-            "getCurrentAccount:",
-            typeof authClient?.getCurrentAccount
-        );
-
-        console.log(
-            "getAllAccounts:",
-            typeof authClient?.getAllAccounts
-        );
-
-        console.log(
-            "================================================"
-        );
         console.log(
             "Username:",
             cleanUsername
         );
 
-        const result =  await authClient.signIn({
-
-                username:
-                    cleanUsername
-
+        const result =
+            await authClient.signIn({
+                username: cleanUsername
             });
-
 
         console.log(
             "Native sign-in result:",
             result
         );
 
+        console.log(
+            "Result constructor:",
+            result?.constructor?.name
+        );
 
-        // ------------------------------------------------------
+        // ============================================================
         // FAILED
-        // ------------------------------------------------------
+        // ============================================================
 
         if (isFailed(result)) {
 
-            signInState = null;
+            console.log(
+                "========== NATIVE SIGN-IN FAILED =========="
+            );
 
-            completedAuthenticationResult = null;
+            console.log(
+                "Sign-in failed state:",
+                result?.state
+            );
+
+            console.log(
+                "Sign-in failed state constructor:",
+                result?.state?.constructor?.name
+            );
+
+            console.log(
+                "Sign-in error:",
+                result?.error
+            );
+
+            console.log(
+                "Sign-in errorData:",
+                result?.errorData
+            );
+
+            // --------------------------------------------------------
+            // Password change / expiry
+            // --------------------------------------------------------
+
+            if (
+                isPasswordChangeRequiredError(result) ||
+                isPasswordExpiredError(result)
+            ) {
+
+                console.log(
+                    "Password change is required."
+                );
+
+                return await startPasswordResetForExpiredPassword();
+            }
 
             return {
-
                 success: false,
-
                 step: "email",
-
+                state:
+                    result?.state ?? null,
                 message:
                     getErrorMessage(result)
-
             };
-
         }
 
-
-        // ------------------------------------------------------
-        // Store state
-        // ------------------------------------------------------
+        // ============================================================
+        // SAVE CURRENT NATIVE SIGN-IN STATE
+        // ============================================================
 
         signInState =
             result?.state ?? null;
 
-
-        // ------------------------------------------------------
+        // ============================================================
         // PASSWORD REQUIRED
-        // ------------------------------------------------------
+        // ============================================================
 
         if (
-            signInState instanceof
+            result?.state instanceof
             SignInPasswordRequiredState
         ) {
 
+            console.log(
+                "========== PASSWORD REQUIRED =========="
+            );
+
             return {
-
                 success: true,
-
                 step: "password",
-
                 state:
                     signInState,
-
                 message:
-                    "Password required."
-
+                    "Enter your password."
             };
-
         }
 
+        // ============================================================
+        // VERIFICATION CODE REQUIRED
+        // ============================================================
 
-        // ------------------------------------------------------
-        // Process all other states
-        // ------------------------------------------------------
+        if (
+            result?.state instanceof
+            SignInCodeRequiredState
+        ) {
 
-        return await processAuthenticationResult(
-            result,
-            {
-                defaultStep: "email"
-            }
+            console.log(
+                "========== VERIFICATION CODE REQUIRED =========="
+            );
+
+            return {
+                success: true,
+                step: "code",
+                state:
+                    signInState,
+                message:
+                    "Enter the verification code."
+            };
+        }
+
+        // ============================================================
+        // MFA REQUIRED
+        // ============================================================
+
+        if (
+            result?.state instanceof MfaAwaitingState ||
+            isMfaRequired(result)
+        ) {
+
+            console.log(
+                "========== MFA REQUIRED =========="
+            );
+
+            return await processMfaAwaitingState(
+                result?.state
+            );
+        }
+
+        // ============================================================
+        // AUTHENTICATION METHOD REGISTRATION REQUIRED
+        // ============================================================
+
+        if (
+            result?.state instanceof
+                AuthMethodRegistrationRequiredState ||
+            isAuthMethodRegistrationRequired(result)
+        ) {
+
+            console.log(
+                "========== AUTHENTICATION METHOD REGISTRATION REQUIRED =========="
+            );
+
+            return {
+                success: true,
+                step: "authMethodRegistration",
+                state:
+                    result?.state ?? signInState,
+                message:
+                    "An authentication method must be registered."
+            };
+        }
+
+        // ============================================================
+        // COMPLETED
+        // ============================================================
+
+        if (
+            result?.state instanceof SignInCompletedState ||
+            isCompleted(result)
+        ) {
+
+            console.log(
+                "========== NATIVE SIGN-IN COMPLETED =========="
+            );
+
+            await diagnoseNativeTokenCapabilities(
+                result
+            );
+
+            storeCompletedAuthenticationResult(
+                result?.data
+            );
+
+            return createCompletedResult(
+                result
+            );
+        }
+
+        // ============================================================
+        // UNEXPECTED STATE
+        // ============================================================
+
+        console.error(
+            "Unexpected native sign-in state:",
+            result
         );
+
+        return {
+            success: false,
+            step: "email",
+            state:
+                signInState,
+            message:
+                "Unexpected sign-in step returned by Native Authentication."
+        };
 
     }
     catch (error) {
 
         console.error(
-            "Native authentication start sign-in error:",
+            "========== NATIVE SIGN-IN ERROR =========="
+        );
+
+        console.error(
             error
         );
 
+        console.error(
+            "Error constructor:",
+            error?.constructor?.name
+        );
 
-        signInState = null;
+        console.error(
+            "Error message:",
+            error?.message
+        );
 
-        passwordResetState = null;
+        console.error(
+            "Error errorData:",
+            error?.errorData
+        );
 
-        completedAuthenticationResult = null;
+        // ============================================================
+        // PASSWORD EXPIRY
+        // ============================================================
 
+        if (
+            isPasswordExpiredError(error)
+        ) {
+
+            console.log(
+                "Password expiry detected from thrown error."
+            );
+
+            return await startPasswordResetForExpiredPassword();
+        }
 
         return {
-
             success: false,
-
             step: "email",
-
             message:
                 error?.message ??
-                "Unable to start sign-in."
-
+                "Native authentication failed."
         };
-
     }
-
 };
-// export const startSignIn = async (
-//     username
-// ) => {
 
-//     try {
-
-//         const cleanUsername =
-//             String(username ?? "").trim();
-
-
-//         if (!cleanUsername) {
-
-//             return {
-
-//                 success: false,
-
-//                 step: "email",
-
-//                 message:
-//                     "Please enter your email address."
-
-//             };
-
-//         }
-
-
-//         // ------------------------------------------------------
-//         // Store username
-//         // ------------------------------------------------------
-
-//         currentUsername =
-//             cleanUsername;
-
-
-//         // ------------------------------------------------------
-//         // IMPORTANT:
-//         // Start a completely fresh sign-in transaction.
-//         //
-//         // This does NOT remove MFA enrollment.
-//         // It only clears the previous client-side authentication
-//         // transaction.
-//         // ------------------------------------------------------
-
-//         signInState =
-//             null;
-
-//         passwordResetState =
-//             null;
-
-//         completedAuthenticationResult =
-//             null;
-
-
-//         const authClient =
-//             await getNativeAuthClient();
-
-
-//         console.log(
-//             "========== START SIGN-IN =========="
-//         );
-
-//         console.log(
-//             "Username:",
-//             cleanUsername
-//         );
-
-
-//         const result =
-//             await authClient.signIn({
-
-//                 username:
-//                     cleanUsername
-
-//             });
-
-
-//         console.log(
-//             "Native sign-in result:",
-//             result
-//         );
-
-
-//         // ------------------------------------------------------
-//         // FAILED
-//         // ------------------------------------------------------
-
-//         if (isFailed(result)) {
-
-//             signInState =
-//                 null;
-
-//             completedAuthenticationResult =
-//                 null;
-
-//             return {
-
-//                 success: false,
-
-//                 step: "email",
-
-//                 message:
-//                     getErrorMessage(result)
-
-//             };
-
-//         }
-
-
-//         // ------------------------------------------------------
-//         // Store state
-//         // ------------------------------------------------------
-
-//         signInState =
-//             result?.state ?? null;
-
-
-//         // ------------------------------------------------------
-//         // PASSWORD REQUIRED
-//         // ------------------------------------------------------
-
-//         if (
-//             signInState instanceof
-//             SignInPasswordRequiredState
-//         ) {
-
-//             return {
-
-//                 success: true,
-
-//                 step: "password",
-
-//                 state:
-//                     signInState,
-
-//                 message:
-//                     "Password required."
-
-//             };
-
-//         }
-
-
-//         // ------------------------------------------------------
-//         // Process all other states
-//         // ------------------------------------------------------
-
-//         return await processAuthenticationResult(
-//             result,
-//             {
-//                 defaultStep: "email"
-//             }
-//         );
-
-//     }
-//     catch (error) {
-
-//         console.error(
-//             "Native authentication start sign-in error:",
-//             error
-//         );
-
-
-//         signInState =
-//             null;
-
-//         passwordResetState =
-//             null;
-
-//         completedAuthenticationResult =
-//             null;
-
-
-//         return {
-
-//             success: false,
-
-//             step: "email",
-
-//             message:
-//                 error?.message ??
-//                 "Unable to start sign-in."
-
-//         };
-
-//     }
-
-// };
 
 // ============================================================
 // START PASSWORD CHANGE
@@ -3604,6 +3969,10 @@ export const getNativeAccessToken = async (
 // GET CURRENT USER
 // ============================================================
 
+// ============================================================
+// GET CURRENT USER
+// ============================================================
+
 export const getCurrentUser = async () => {
 
     try {
@@ -3611,16 +3980,57 @@ export const getCurrentUser = async () => {
         const authClient =
             await getNativeAuthClient();
 
-
-        const account =
+        const accountResult =
             authClient.getCurrentAccount();
 
+        console.log(
+            "========== GET CURRENT USER =========="
+        );
 
         console.log(
-            "Current account:",
+            "Account result:",
+            accountResult
+        );
+
+        console.log(
+            "Account result state:",
+            accountResult?.state
+        );
+
+        console.log(
+            "Account result state constructor:",
+            accountResult?.state?.constructor?.name
+        );
+
+        console.log(
+            "Account data:",
+            accountResult?.data
+        );
+
+        // ------------------------------------------------------
+        // IMPORTANT:
+        //
+        // getCurrentAccount() returns GetAccountResult.
+        //
+        // The actual account is accountResult.data.
+        // ------------------------------------------------------
+
+        const account =
+            accountResult?.data ?? null;
+
+        console.log(
+            "Resolved account:",
             account
         );
 
+        console.log(
+            "Authenticated:",
+            !!account
+        );
+
+        console.log(
+            "======================================="
+        );
 
         return {
 
@@ -3628,7 +4038,7 @@ export const getCurrentUser = async () => {
                 !!account,
 
             data:
-                account ?? null
+                account
 
         };
 
@@ -3639,7 +4049,6 @@ export const getCurrentUser = async () => {
             "Get current user error:",
             error
         );
-
 
         return {
 

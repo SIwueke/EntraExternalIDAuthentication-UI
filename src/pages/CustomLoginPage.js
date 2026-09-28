@@ -152,7 +152,16 @@ const CustomLoginPage = () => {
 
         handleCodeSubmit,
 
-        handleBack
+        handleBack,
+
+        // ========================================================
+        // EXISTING AUTHENTICATION
+        // ========================================================
+
+        existingAccount,
+        checkingExistingAccount,
+        continueWithExistingAuthentication,
+        signInWithDifferentAccount
 
     } = useNativeAuth();
 
@@ -166,6 +175,21 @@ const CustomLoginPage = () => {
     );
 
     console.log(
+        "Current authentication step:",
+        step
+    );
+
+    console.log(
+        "Checking existing account:",
+        checkingExistingAccount
+    );
+
+    console.log(
+        "Existing account:",
+        existingAccount
+    );
+
+    console.log(
         "handleEmailSubmit:",
         handleEmailSubmit
     );
@@ -175,12 +199,65 @@ const CustomLoginPage = () => {
         handlePasswordSubmit
     );
 
+    console.log(
+        "continueWithExistingAuthentication:",
+        continueWithExistingAuthentication
+    );
+
+    console.log(
+        "signInWithDifferentAccount:",
+        signInWithDifferentAccount
+    );
+
 
     // ============================================================
     // AUTHENTICATION STEP RENDERING
     // ============================================================
 
     const renderAuthenticationStep = () => {
+
+        // ========================================================
+        // CHECKING FOR EXISTING ACCOUNT
+        // ========================================================
+
+        if (checkingExistingAccount) {
+
+            return (
+                <Box
+                    sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                        alignItems: "center",
+                        textAlign: "center",
+                        py: 3
+                    }}
+                >
+
+                    <Typography
+                        variant="h6"
+                        sx={{
+                            fontWeight: 600
+                        }}
+                    >
+                        Checking your sign-in
+                    </Typography>
+
+                    <Typography
+                        variant="body2"
+                        color="text.secondary"
+                    >
+                        Checking whether you are already signed in...
+                    </Typography>
+
+                </Box>
+            );
+        }
+
+
+        // ========================================================
+        // STEP SWITCH
+        // ========================================================
 
         switch (step) {
 
@@ -202,6 +279,109 @@ const CustomLoginPage = () => {
                             primaryButtonSx
                         }
                     />
+                );
+
+
+            // ====================================================
+            // ALREADY AUTHENTICATED
+            // ====================================================
+
+            case "alreadyAuthenticated":
+
+                return (
+                    <Box
+                        sx={{
+                            textAlign: "center"
+                        }}
+                    >
+
+                        <Typography
+                            sx={{
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: "#2a1c3b",
+                                mb: 1
+                            }}
+                        >
+                            You are already signed in
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 14,
+                                color: "#546078",
+                                mb: 1
+                            }}
+                        >
+                            {existingAccount?.account?.username ||
+                                username ||
+                                "An existing account"}
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 14,
+                                color: "#546078",
+                                mb: 3
+                            }}
+                        >
+                            Continue with this account or
+                            sign in with a different account.
+                        </Typography>
+
+
+                        <Button
+                            variant="contained"
+                            fullWidth
+                            disabled={loading}
+                            onClick={async () => {
+
+                                console.log(
+                                    "========== CONTINUE EXISTING ACCOUNT =========="
+                                );
+
+                                await continueWithExistingAuthentication();
+                            }}
+                            sx={{
+                                ...primaryButtonSx,
+
+                                mb: 1.5,
+
+                                "&:hover": {
+                                    background:
+                                        "linear-gradient(90deg, #544070, #2e3258)"
+                                }
+                            }}
+                        >
+                            {loading
+                                ? "Continuing..."
+                                : "Continue"}
+                        </Button>
+
+
+                        <Button
+                            variant="text"
+                            fullWidth
+                            disabled={loading}
+                            onClick={async () => {
+
+                                console.log(
+                                    "========== SIGN IN WITH DIFFERENT ACCOUNT =========="
+                                );
+
+                                await signInWithDifferentAccount();
+                            }}
+                            sx={{
+                                ...backButtonSx,
+                                fontWeight: 600
+                            }}
+                        >
+                            Sign in with a different account
+                        </Button>
+
+                    </Box>
                 );
 
 
@@ -672,10 +852,53 @@ const CustomLoginPage = () => {
 
 
             // ====================================================
+            // CHECKING AUTHENTICATION
+            // ====================================================
+
+            case "checkingAuthentication":
+
+                return (
+                    <Box
+                        sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                            alignItems: "center",
+                            textAlign: "center",
+                            py: 3
+                        }}
+                    >
+
+                        <Typography
+                            variant="h6"
+                            sx={{
+                                fontWeight: 600
+                            }}
+                        >
+                            Checking your sign-in
+                        </Typography>
+
+                        <Typography
+                            variant="body2"
+                            color="text.secondary"
+                        >
+                            Checking whether you are already signed in...
+                        </Typography>
+
+                    </Box>
+                );
+
+
+            // ====================================================
             // DEFAULT
             // ====================================================
 
             default:
+
+                console.warn(
+                    "CustomLoginPage received unknown authentication step:",
+                    step
+                );
 
                 return null;
         }
@@ -800,6 +1023,4 @@ const CustomLoginPage = () => {
     );
 };
 
-
 export default CustomLoginPage;
-

@@ -1,5 +1,9 @@
-
-import { useCallback, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState
+} from "react";
 
 import {
     startSignIn,
@@ -12,8 +16,10 @@ import {
     requestMfaChallenge,
     getNativeAccessToken,
     getCurrentUser,
+    getCompletedAuthenticationResult,
     clearCompletedAuthenticationResult,
-    storeCompletedAuthenticationResult
+    storeCompletedAuthenticationResult,
+    switchNativeAccount
 } from "../auth/nativeAuthService";
 
 import {
@@ -143,8 +149,9 @@ const useNativeLogin = () => {
     // UI STATE
     // ============================================================
 
-    const [step, setStep] =
-        useState("email");
+    const [step, setStep] = useState(
+            "checkingAuthentication"
+        );
 
     const [loading, setLoading] =
         useState(false);
@@ -170,6 +177,11 @@ const useNativeLogin = () => {
     const [passwordResetCode, setPasswordResetCode] =
         useState("");
 
+    const [existingAccount, setExistingAccount] =
+        useState(null);
+
+    const [checkingExistingAccount, setCheckingExistingAccount] =
+        useState(true);
 
     // ============================================================
     // ORIGINAL ENTRA AUTHENTICATION RESULT
@@ -464,7 +476,7 @@ const useNativeLogin = () => {
             startApplicationMfaEnrollment
         ]);
 
-
+    
     // ============================================================
     // VERIFY NEW MFA ENROLLMENT
     // ============================================================
@@ -849,6 +861,84 @@ const useNativeLogin = () => {
 
                 return;
 
+            }
+
+            
+            // --------------------------------------------------
+            // ALREADY AUTHENTICATED
+            // --------------------------------------------------
+            //
+            // The native authentication service has detected that
+            // a Custom Auth user is already signed in.
+            //
+            // DO NOT start:
+            //     email -> password -> MFA
+            //
+            // Instead show the existing-account screen.
+            //
+            // The user can then:
+            //     Continue
+            //     OR
+            //     Sign in with a different account
+            // --------------------------------------------------
+
+            if (
+                result.step === "alreadyAuthenticated"
+            ) {
+
+                console.log(
+                    "========== USER ALREADY AUTHENTICATED =========="
+                );
+
+                console.log(
+                    "Existing account:",
+                    result.account
+                );
+
+                console.log(
+                    "Existing authentication result:",
+                    result.authenticationResult
+                );
+
+                // Keep the existing authenticated account available
+                // to the React hook.
+
+                setExistingAccount(
+                    result.authenticationResult ??
+                    null
+                );
+
+                // Preserve the original Entra authentication result.
+                //
+                // This is important because Continue must NOT ask
+                // the user for their password again.
+
+                if (
+                    result.authenticationResult
+                ) {
+
+                    nativeAuthenticationResultRef.current =
+                        result.authenticationResult;
+
+                    storeCompletedAuthenticationResult(
+                        result.authenticationResult
+                    );
+                }
+
+                // Keep the username displayed by the existing-account
+                // screen.
+
+                setUsername(
+                    result.username ??
+                    result.account?.username ??
+                    ""
+                );
+
+                setStep(
+                    "alreadyAuthenticated"
+                );
+
+                return;
             }
 
 
@@ -2836,15 +2926,266 @@ const useNativeLogin = () => {
 
 
     // ============================================================
-    // CLEAR APPLICATION AUTHENTICATION
+// CLEAR APPLICATION AUTHENTICATION
+// ============================================================
+//
+// IMPORTANT:
+//
+// This clears the APPLICATION MFA/session state only.
+//
+// It MUST NOT call authClient.clearCache().
+// It MUST NOT sign the native Entra user out.
+//
+// The native Entra account must remain cached so that when
+// /login is opened again, useNativeLogin() can detect:
+//
+//     getCurrentAccount()
+//          ↓
+//     CustomAuthAccountData
+//          ↓
+//     "Already signed in"
+//
+// "Sign in with a different account" is responsible for
+// explicitly clearing the native account.
+//
+
+const clearApplicationAuthentication =  useCallback(() => {
+
+        console.log(
+            "========== CLEAR APPLICATION AUTHENTICATION =========="
+        );
+
+        console.log(
+            "Clearing React/application MFA state only."
+        );
+
+        console.log(
+            "Native Entra account will NOT be cleared."
+        );
+
+        // ----------------------------------------------------
+        // Application authentication state
+        // ----------------------------------------------------
+
+        setIsApplicationAuthenticated(
+            false
+        );
+
+        // ----------------------------------------------------
+        // Login form state
+        // ----------------------------------------------------
+
+        setUsername("");
+
+        setPassword("");
+
+        setCode("");
+
+        // ----------------------------------------------------
+        // Password reset state
+        // ----------------------------------------------------
+
+        setPasswordResetCode("");
+
+        setNewPassword("");
+
+        setConfirmPassword("");
+
+        // ----------------------------------------------------
+        // Application MFA state
+        // ----------------------------------------------------
+
+        setMfaMethods([]);
+
+        setSelectedMfaMethod(null);
+
+        setActiveMfaMethod(null);
+
+        setMfaEnrollmentStatus(null);
+
+        setEnrollmentData(null);
+
+        setEnrollmentCode("");
+
+        // ----------------------------------------------------
+        // Native authentication registration state
+        // ----------------------------------------------------
+
+        setRegistrationMethods([]);
+
+        setSelectedRegistrationMethod(null);
+
+        setRegistrationContact("");
+
+        setRegistrationCode("");
+
+        setRegistrationState(null);
+
+        // ----------------------------------------------------
+        // UI messages
+        // ----------------------------------------------------
+
+        setError("");
+
+        setSuccess("");
+
+        // ----------------------------------------------------
+        // IMPORTANT:
+        //
+        // Do NOT clear the native authentication result here.
+        //
+        // The cached native account is still valid and should
+        // be detected by getCurrentUser() when /login opens.
+        // ----------------------------------------------------
+
+        console.log(
+            "Preserving nativeAuthenticationResultRef."
+        );
+
+        console.log(
+            "Preserving completed native authentication result."
+        );
+
+        console.log(
+            "Preserving native MSAL account cache."
+        );
+
+        // ----------------------------------------------------
+        // Do NOT do these here:
+        //
+        // nativeAuthenticationResultRef.current = null;
+        // clearCompletedAuthenticationResult();
+        // clearAuthentication();
+        // authClient.clearCache();
+        //
+        // Those belong to an actual account switch/logout.
+        // ----------------------------------------------------
+
+        setStep(
+            "email"
+        );
+
+        console.log(
+            "======================================================="
+        );
+
+    }, []);
+    // ============================================================
+    // LOGOUT
     // ============================================================
 
-    const clearApplicationAuthentication =
+    const logout =
         useCallback(() => {
+
+            clearApplicationAuthentication();
+
+        }, [
+            clearApplicationAuthentication
+        ]);
+    
+  // ============================================================
+// SIGN IN WITH DIFFERENT ACCOUNT
+// ============================================================
+//
+// This is the ONLY place where we intentionally remove the
+// currently authenticated native Entra account.
+//
+// Normal startSignIn() MUST NOT clear an existing account.
+//
+// Flow:
+//
+//     alreadyAuthenticated
+//             |
+//             v
+//     user clicks "Sign in with a different account"
+//             |
+//             v
+//     switchNativeAccount()
+//             |
+//             v
+//     native account removed
+//             |
+//             v
+//     React authentication state cleared
+//             |
+//             v
+//     email
+// ============================================================
+
+const signInWithDifferentAccount =
+    useCallback(async () => {
+
+        console.log(
+            "=================================================="
+        );
+
+        console.log(
+            "========== SIGN IN WITH DIFFERENT ACCOUNT ========="
+        );
+
+        console.log(
+            "=================================================="
+        );
+
+        setLoading(true);
+
+        setError("");
+
+        setSuccess("");
+
+        try {
+
+            // --------------------------------------------------------
+            // Explicitly sign out the existing native user.
+            //
+            // IMPORTANT:
+            //
+            // This is intentionally different from startSignIn().
+            //
+            // startSignIn() detects an existing account.
+            //
+            // This function removes it because the user explicitly
+            // requested a different account.
+            // --------------------------------------------------------
+
+            const result =
+                await switchNativeAccount();
+
+            console.log(
+                "switchNativeAccount() result:",
+                result
+            );
+
+            if (!result?.success) {
+
+                throw new Error(
+                    result?.message ||
+                    "Unable to switch accounts."
+                );
+            }
+
+            // --------------------------------------------------------
+            // Clear React-side authentication state.
+            // --------------------------------------------------------
 
             setIsApplicationAuthenticated(
                 false
             );
+
+            setExistingAccount(
+                null
+            );
+
+            nativeAuthenticationResultRef.current =
+                null;
+
+            clearCompletedAuthenticationResult();
+
+            clearSignInState();
+
+            // --------------------------------------------------------
+            // Clear login form.
+            // --------------------------------------------------------
 
             setUsername("");
 
@@ -2852,11 +3193,9 @@ const useNativeLogin = () => {
 
             setCode("");
 
-            setPasswordResetCode("");
-
-            setNewPassword("");
-
-            setConfirmPassword("");
+            // --------------------------------------------------------
+            // Clear application MFA state.
+            // --------------------------------------------------------
 
             setMfaMethods([]);
 
@@ -2870,6 +3209,20 @@ const useNativeLogin = () => {
 
             setEnrollmentCode("");
 
+            // --------------------------------------------------------
+            // Clear password reset state.
+            // --------------------------------------------------------
+
+            setPasswordResetCode("");
+
+            setNewPassword("");
+
+            setConfirmPassword("");
+
+            // --------------------------------------------------------
+            // Clear registration state.
+            // --------------------------------------------------------
+
             setRegistrationMethods([]);
 
             setSelectedRegistrationMethod(null);
@@ -2880,38 +3233,352 @@ const useNativeLogin = () => {
 
             setRegistrationState(null);
 
-            setError("");
-
-            setSuccess("");
-
-            nativeAuthenticationResultRef.current =
-                null;
-
-            clearCompletedAuthenticationResult();
-
-            clearSignInState();
+            // --------------------------------------------------------
+            // Finally return to the email screen.
+            // --------------------------------------------------------
 
             setStep(
                 "email"
             );
 
-        }, []);
+            console.log(
+                "========== ACCOUNT SWITCH COMPLETE =========="
+            );
+
+            console.log(
+                "Ready for another user to authenticate."
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "========== ACCOUNT SWITCH FAILED =========="
+            );
+
+            console.error(
+                error
+            );
+
+            setError(
+                error?.message ||
+                "Unable to switch accounts."
+            );
+
+        }
+        finally {
+
+            setLoading(false);
+        }
+
+    }, []);
 
 
+
+ // ============================================================
+// CONTINUE WITH EXISTING NATIVE AUTHENTICATION
+// ============================================================
+//
+// The user is already authenticated with Entra.
+//
+// We therefore do NOT ask for:
+//
+//     email
+//     password
+//
+// We go directly to the application's MFA decision.
+//
+// IMPORTANT:
+//
+// Entra authentication and application MFA are separate.
+// ============================================================
+
+const continueWithExistingAuthentication =
+    useCallback(async () => {
+        console.log(
+            "========== CONTINUE WITH EXISTING AUTHENTICATION =========="
+        );
+
+        clearMessages();
+        setLoading(true);
+
+        try {
+            let authenticationResult =
+                nativeAuthenticationResultRef.current;
+
+            console.log(
+                "1. Ref authentication result:",
+                authenticationResult
+            );
+
+            if (!authenticationResult) {
+                authenticationResult =
+                    getCompletedAuthenticationResult();
+            }
+
+            console.log(
+                "2. Stored authentication result:",
+                authenticationResult
+            );
+
+            if (!authenticationResult) {
+                const currentUser =
+                    await getCurrentUser();
+
+                console.log(
+                    "3. Current user:",
+                    currentUser
+                );
+
+                authenticationResult =
+                    currentUser?.data ?? null;
+            }
+
+            if (!authenticationResult) {
+                throw new Error(
+                    "The existing Entra authentication could not be restored."
+                );
+            }
+
+            console.log(
+                "4. Restored CustomAuthAccountData:",
+                authenticationResult
+            );
+
+            nativeAuthenticationResultRef.current =
+                authenticationResult;
+
+            storeCompletedAuthenticationResult(
+                authenticationResult
+            );
+
+            console.log(
+                "5. Existing Entra authentication restored."
+            );
+
+            // IMPORTANT:
+            // The user is already authenticated.
+            // Do NOT send them through application MFA again.
+
+            setIsApplicationAuthenticated(true);
+
+            setSuccess(
+                "Authentication restored successfully."
+            );
+
+            setStep("authenticated");
+
+            console.log(
+                "6. Existing authentication accepted."
+            );
+        }
+        catch (error) {
+            console.error(
+                "Continue with existing authentication failed:",
+                error
+            );
+
+            setError(
+                error?.message ??
+                "Unable to continue with the existing authentication."
+            );
+
+            setStep("alreadyAuthenticated");
+        }
+        finally {
+            setLoading(false);
+        }
+    }, [
+        clearMessages
+    ]);
     // ============================================================
-    // LOGOUT
+    // CHECK FOR EXISTING NATIVE AUTHENTICATED USER
+    // ============================================================
+    //
+    // CustomAuth keeps the authenticated account in the MSAL
+    // browser cache.
+    //
+    // We do NOT want to immediately start the email/password
+    // flow when an account is already authenticated.
+    //
+    // Instead:
+    //
+    //     existing account
+    //          |
+    //          v
+    //     alreadyAuthenticated
+    //          |
+    //          v
+    //     user chooses Continue
+    //          |
+    //          v
+    //     application MFA is checked
+    //
+    // IMPORTANT:
+    //
+    // Existing Entra authentication does NOT automatically mean
+    // application MFA has been completed.
     // ============================================================
 
-    const logout =
-        useCallback(() => {
+    useEffect(() => {
 
-            clearApplicationAuthentication();
+        let cancelled = false;
 
-        }, [
-            clearApplicationAuthentication
-        ]);
+        const initialiseAuthentication = async () => {
 
+            console.log(
+                "=================================================="
+            );
 
+            console.log(
+                "========== CHECK EXISTING NATIVE AUTH =========="
+            );
+
+            console.log(
+                "=================================================="
+            );
+
+            try {
+
+                setCheckingExistingAccount(true);
+
+                const currentUser =
+                    await getCurrentUser();
+
+                console.log(
+                    "Current user result:",
+                    currentUser
+                );
+
+                if (cancelled) {
+                    return;
+                }
+
+                if (
+                    currentUser?.authenticated &&
+                    currentUser?.data
+                ) {
+
+                    const accountData =
+                        currentUser.data;
+
+                    const accountInfo =
+                        accountData?.account;
+
+                    console.log(
+                        "========== EXISTING USER FOUND =========="
+                    );
+
+                    console.log(
+                        "CustomAuthAccountData:",
+                        accountData
+                    );
+
+                    console.log(
+                        "AccountInfo:",
+                        accountInfo
+                    );
+
+                    console.log(
+                        "Username:",
+                        accountInfo?.username
+                    );
+
+                    setExistingAccount(
+                        accountData
+                    );
+
+                    // ------------------------------------------------
+                    // The account itself can acquire the API token.
+                    //
+                    // Restore it into our React authentication ref so
+                    // Continue does not require another password login.
+                    // ------------------------------------------------
+
+                    nativeAuthenticationResultRef.current =
+                        accountData;
+
+                    // ------------------------------------------------
+                    // Also restore the native service's completed
+                    // authentication result.
+                    // ------------------------------------------------
+
+                    storeCompletedAuthenticationResult(
+                        accountData
+                    );
+
+                    setUsername(
+                        accountInfo?.username ?? ""
+                    );
+
+                    setStep(
+                        "alreadyAuthenticated"
+                    );
+
+                }
+                else {
+
+                    console.log(
+                        "No existing native account found."
+                    );
+
+                    setExistingAccount(
+                        null
+                    );
+
+                    nativeAuthenticationResultRef.current =
+                        null;
+
+                    setStep(
+                        "email"
+                    );
+                }
+
+            }
+            catch (error) {
+
+                console.error(
+                    "Existing authentication check failed:",
+                    error
+                );
+
+                if (!cancelled) {
+
+                    setExistingAccount(
+                        null
+                    );
+
+                    nativeAuthenticationResultRef.current =
+                        null;
+
+                    setStep(
+                        "email"
+                    );
+                }
+
+            }
+            finally {
+
+                if (!cancelled) {
+
+                    setCheckingExistingAccount(
+                        false
+                    );
+                }
+
+            }
+
+        };
+
+        initialiseAuthentication();
+
+        return () => {
+
+            cancelled = true;
+
+        };
+
+    }, []);
     // ============================================================
     // RETURN
     // ============================================================
@@ -3084,17 +3751,15 @@ const useNativeLogin = () => {
         // --------------------------------------------
 
         passwordResetCode,
-
         setPasswordResetCode,
-
         newPassword,
-
         setNewPassword,
-
         confirmPassword,
-
-        setConfirmPassword
-
+        setConfirmPassword,
+        existingAccount,
+        checkingExistingAccount,
+        continueWithExistingAuthentication,
+       signInWithDifferentAccount
     };
 };
 
