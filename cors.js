@@ -1,6 +1,6 @@
 const http = require("http");
 const https = require("https");
-
+//node cores.js
 const proxyConfig = require("./proxy.config");
 
 // ------------------------------------------------------------
@@ -61,11 +61,11 @@ function removeUpstreamCorsHeaders(headers) {
 const server = http.createServer(
     (req, res) => {
 
-        console.log(
-            "PROXY REQUEST:",
-            req.method,
-            req.url
-        );
+        // console.log(
+        //     "PROXY REQUEST:",
+        //     req.method,
+        //     req.url
+        // );
 
         // ------------------------------------------------
         // CORS preflight
@@ -73,15 +73,15 @@ const server = http.createServer(
 
         if (req.method === "OPTIONS") {
 
-            console.log(
-                "CORS PREFLIGHT",
-                req.headers
-            );
+            // console.log(
+            //     "CORS PREFLIGHT",
+            //     req.headers
+            // );
 
-            console.log(
-                "CORS ORIGIN:",
-                req.headers.origin
-            );
+            // console.log(
+            //     "CORS ORIGIN:",
+            //     req.headers.origin
+            // );
 
             const headers = setCorsHeaders(req);
 
@@ -147,9 +147,9 @@ const server = http.createServer(
             target.pathname.replace(/\/$/, "") +
             targetPath;
 
-        console.log(
-            `${req.method} ${req.url} -> https://${target.hostname}${finalPath}`
-        );
+        // console.log(
+        //     `${req.method} ${req.url} -> https://${target.hostname}${finalPath}`
+        // );
 
         // ------------------------------------------------
         // HTTPS request to Entra
@@ -166,11 +166,11 @@ const server = http.createServer(
             delete forwardedHeaders.origin;
             delete forwardedHeaders.referer;
 
-            console.log("========== TOKEN REQUEST ==========");
-            console.log("Removing browser Origin header before forwarding to Entra.");
-            console.log("Original Origin:", req.headers.origin);
-            console.log("Forwarded Origin:", forwardedHeaders.origin);
-            console.log("==================================");
+            // console.log("========== TOKEN REQUEST ==========");
+            // console.log("Removing browser Origin header before forwarding to Entra.");
+            // console.log("Original Origin:", req.headers.origin);
+            // console.log("Forwarded Origin:", forwardedHeaders.origin);
+            // console.log("==================================");
         }
 
         const options = {
@@ -182,9 +182,9 @@ const server = http.createServer(
             headers: forwardedHeaders
         };
         const proxyReq = https.request(options, proxyRes => {
-            console.log("========================================");
-            console.log("ENTRA RESPONSE:", proxyRes.statusCode);
-            console.log("ENTRA HEADERS:", proxyRes.headers);
+            // console.log("========================================");
+            // console.log("ENTRA RESPONSE:", proxyRes.statusCode);
+            // console.log("ENTRA HEADERS:", proxyRes.headers);
 
             const cleanedHeaders = removeUpstreamCorsHeaders(proxyRes.headers);
 
@@ -205,8 +205,8 @@ const server = http.createServer(
                 headers["Access-Control-Allow-Origin"]
             );
 
-            console.log("FINAL PROXY RESPONSE HEADERS:", headers);
-            console.log("========================================");
+            // console.log("FINAL PROXY RESPONSE HEADERS:", headers);
+            // console.log("========================================");
 
            let responseBody = "";
 
@@ -215,9 +215,9 @@ const server = http.createServer(
             });
 
             proxyRes.on("end", () => {
-                console.log("========== ENTRA RESPONSE BODY ==========");
-                console.log(responseBody);
-                console.log("=========================================");
+                // console.log("========== ENTRA RESPONSE BODY ==========");
+                // console.log(responseBody);
+                // console.log("=========================================");
 
                 res.writeHead(proxyRes.statusCode, headers);
                 res.end(responseBody);
@@ -284,17 +284,17 @@ server.listen(
     proxyConfig.port,
     () => {
 
-        console.log(
-            `Native authentication CORS proxy running on http://localhost:${proxyConfig.port}`
-        );
+        // console.log(
+        //     `Native authentication CORS proxy running on http://localhost:${proxyConfig.port}`
+        // );
 
-        console.log(
-            `Proxy target: ${proxyConfig.proxy}`
-        );
+        // console.log(
+        //     `Proxy target: ${proxyConfig.proxy}`
+        // );
 
-        console.log(
-            "Allowed origins:",
-            allowedOrigins
-        );
+        // console.log(
+        //     "Allowed origins:",
+        //     allowedOrigins
+        // );
     }
 );

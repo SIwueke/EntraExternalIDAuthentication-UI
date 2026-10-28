@@ -179,7 +179,8 @@ const useNativeLogin = () => {
 
     const [existingAccount, setExistingAccount] =
         useState(null);
-
+    const [pendingSwitchUsername, setPendingSwitchUsername] =
+    useState("");
     const [checkingExistingAccount, setCheckingExistingAccount] =
         useState(true);
 
@@ -785,9 +786,23 @@ const useNativeLogin = () => {
             setLoading(true);
 
 
-            const result =
-                await startSignIn(username);
-
+            const result =           await startSignIn(username);
+            console.log(
+                "========== START SIGN-IN RESULT ==========",
+                result
+            );
+            console.log(
+                "Returned step:",
+                result?.step
+            );
+            console.log(
+                "Requested username:",
+                result?.requestedUsername
+            );
+            console.log(
+                "Existing username:",
+                result?.username
+            );
 
             console.log(
                 "=================================================="
@@ -940,8 +955,91 @@ const useNativeLogin = () => {
 
                 return;
             }
+            
+                    
+        // --------------------------------------------------
+        // DIFFERENT ACCOUNT ALREADY AUTHENTICATED
+        // --------------------------------------------------
+        //
+        // A native Entra account is already authenticated,
+        // but it is NOT the username the user just entered.
+        //
+        // IMPORTANT:
+        //
+        // Do NOT call startSignIn() again here.
+        //
+        // The existing account must remain authenticated until
+        // the user explicitly chooses "Sign in with a different
+        // account".
+        //
+        // The UI should now show:
+        //
+        //     Existing User: A
+        //     Requested User: B
+        //
+        //     [Continue] [Sign in with a different account]
+        //
+        // When the user chooses the switch option,
+        // signInWithDifferentAccount() will:
+        //
+        //     switchNativeAccount()
+        //             |
+        //             v
+        //     clearCache(User A)
+        //             |
+        //             v
+        //     verify User A is gone
+        //             |
+        //             v
+        //     clear React authentication state
+        //             |
+        //             v
+        //     return to email
+        //             |
+        //             v
+        //     startSignIn(User B)
+        // --------------------------------------------------
 
+        if (result.step === "differentAccountAuthenticated") {
+            console.log(
+                "========== DIFFERENT ACCOUNT DETECTED =========="
+            );
 
+            setExistingAccount(result.authenticationResult ?? null);
+
+            if (result.authenticationResult) {
+                nativeAuthenticationResultRef.current =
+                    result.authenticationResult;
+
+                storeCompletedAuthenticationResult(
+                    result.authenticationResult
+                );
+            }
+
+            const requestedUsername =
+                result.requestedUsername ??
+                username ??
+                "";
+
+            console.log(
+                "Existing account:",
+                result.username
+            );
+
+            console.log(
+                "Requested account:",
+                requestedUsername
+            );
+
+            setPendingSwitchUsername(requestedUsername);
+            setUsername(requestedUsername);
+            setStep("differentAccountAuthenticated");
+
+            return;
+        }
+        
+
+ 
             // --------------------------------------------------
             // PASSWORD
             // --------------------------------------------------
@@ -3083,37 +3181,41 @@ const clearApplicationAuthentication =  useCallback(() => {
             clearApplicationAuthentication
         ]);
     
-  // ============================================================
+  
+// ============================================================
 // SIGN IN WITH DIFFERENT ACCOUNT
 // ============================================================
 //
 // This is the ONLY place where we intentionally remove the
 // currently authenticated native Entra account.
 //
-// Normal startSignIn() MUST NOT clear an existing account.
-//
 // Flow:
 //
-//     alreadyAuthenticated
+//     User A authenticated
 //             |
 //             v
-//     user clicks "Sign in with a different account"
+//     User enters User B email
+//             |
+//             v
+//     differentAccountAuthenticated
+//             |
+//             v
+//     User clicks "Switch Account"
 //             |
 //             v
 //     switchNativeAccount()
 //             |
 //             v
-//     native account removed
+//     User A removed
 //             |
 //             v
-//     React authentication state cleared
+//     startSignIn(User B)
 //             |
 //             v
-//     email
+//     password
 // ============================================================
 
-const signInWithDifferentAccount =
-    useCallback(async () => {
+const signInWithDifferentAccount =   useCallback(async () => {
 
         console.log(
             "=================================================="
@@ -3136,16 +3238,37 @@ const signInWithDifferentAccount =
         try {
 
             // --------------------------------------------------------
-            // Explicitly sign out the existing native user.
+            // Capture the account we are switching TO.
             //
-            // IMPORTANT:
+            // pendingSwitchUsername is preferred because it was
+            // supplied by startSignIn().
             //
-            // This is intentionally different from startSignIn().
-            //
-            // startSignIn() detects an existing account.
-            //
-            // This function removes it because the user explicitly
-            // requested a different account.
+            // username is the fallback.
+            // --------------------------------------------------------
+
+            const requestedUsername =
+                (
+                    pendingSwitchUsername ||
+                    username ||
+                    ""
+                ).trim();
+
+            if (!requestedUsername) {
+
+                throw new Error(
+                    "The username for the new account is not available."
+                );
+            }
+
+            console.log(
+                "Account we are switching TO:",
+                requestedUsername
+            );
+
+
+            // --------------------------------------------------------
+            // Explicitly remove the currently authenticated native
+            // Entra account.
             // --------------------------------------------------------
 
             const result =
@@ -3163,6 +3286,12 @@ const signInWithDifferentAccount =
                     "Unable to switch accounts."
                 );
             }
+
+
+            console.log(
+                "Existing native account successfully removed."
+            );
+
 
             // --------------------------------------------------------
             // Clear React-side authentication state.
@@ -3183,15 +3312,6 @@ const signInWithDifferentAccount =
 
             clearSignInState();
 
-            // --------------------------------------------------------
-            // Clear login form.
-            // --------------------------------------------------------
-
-            setUsername("");
-
-            setPassword("");
-
-            setCode("");
 
             // --------------------------------------------------------
             // Clear application MFA state.
@@ -3209,15 +3329,21 @@ const signInWithDifferentAccount =
 
             setEnrollmentCode("");
 
+
             // --------------------------------------------------------
-            // Clear password reset state.
+            // Clear password/reset state.
             // --------------------------------------------------------
+
+            setPassword("");
+
+            setCode("");
 
             setPasswordResetCode("");
 
             setNewPassword("");
 
             setConfirmPassword("");
+
 
             // --------------------------------------------------------
             // Clear registration state.
@@ -3233,20 +3359,223 @@ const signInWithDifferentAccount =
 
             setRegistrationState(null);
 
+
             // --------------------------------------------------------
-            // Finally return to the email screen.
+            // IMPORTANT:
+            //
+            // We now have NO authenticated native account.
+            //
+            // Therefore start a completely new sign-in transaction
+            // for User B.
             // --------------------------------------------------------
 
-            setStep(
-                "email"
+            console.log(
+                "========== STARTING SIGN-IN FOR NEW ACCOUNT =========="
             );
 
             console.log(
-                "========== ACCOUNT SWITCH COMPLETE =========="
+                "Requested username:",
+                requestedUsername
+            );
+
+            const signInResult =
+                await startSignIn(
+                    requestedUsername
+                );
+
+            console.log(
+                "========== NEW ACCOUNT SIGN-IN RESULT =========="
             );
 
             console.log(
-                "Ready for another user to authenticate."
+                "Result:",
+                signInResult
+            );
+
+            console.log(
+                "Result step:",
+                signInResult?.step
+            );
+
+
+            if (!signInResult) {
+
+                throw new Error(
+                    "Unable to start authentication for the new account."
+                );
+            }
+
+
+            if (
+                !signInResult.success
+            ) {
+
+                throw new Error(
+                    signInResult.message ||
+                    "Unable to start authentication for the new account."
+                );
+            }
+
+
+            // --------------------------------------------------------
+            // NEW ACCOUNT PASSWORD
+            // --------------------------------------------------------
+
+            if (
+                signInResult.step ===
+                "password"
+            ) {
+
+                console.log(
+                    "New account requires password."
+                );
+
+                setUsername(
+                    requestedUsername
+                );
+
+                setStep(
+                    "password"
+                );
+
+                return;
+            }
+
+
+            // --------------------------------------------------------
+            // NEW ACCOUNT CODE
+            // --------------------------------------------------------
+
+            if (
+                signInResult.step ===
+                "code"
+            ) {
+
+                console.log(
+                    "New account requires verification code."
+                );
+
+                setUsername(
+                    requestedUsername
+                );
+
+                setStep(
+                    "code"
+                );
+
+                return;
+            }
+
+
+            // --------------------------------------------------------
+            // NEW ACCOUNT MFA
+            // --------------------------------------------------------
+
+            if (
+                signInResult.step ===
+                "mfa"
+            ) {
+
+                console.log(
+                    "New account requires native MFA."
+                );
+
+                const methods =
+                    buildCustomMfaMethods(
+                        signInResult.mfaMethods
+                    );
+
+                setMfaMethods(
+                    methods
+                );
+
+                setSelectedMfaMethod(
+                    methods[0] ?? null
+                );
+
+                setUsername(
+                    requestedUsername
+                );
+
+                setStep(
+                    "mfa"
+                );
+
+                return;
+            }
+
+
+            // --------------------------------------------------------
+            // NEW ACCOUNT AUTHENTICATION METHOD REGISTRATION
+            // --------------------------------------------------------
+
+            if (
+                signInResult.step ===
+                "authMethodRegistration"
+            ) {
+
+                console.log(
+                    "New account requires authentication method registration."
+                );
+
+                setUsername(
+                    requestedUsername
+                );
+
+                setStep(
+                    "registration"
+                );
+
+                return;
+            }
+
+
+            // --------------------------------------------------------
+            // NEW ACCOUNT COMPLETED DIRECTLY
+            // --------------------------------------------------------
+
+            if (
+                signInResult.step ===
+                "completed" &&
+                signInResult.authenticationResult
+            ) {
+
+                console.log(
+                    "New account authentication completed directly."
+                );
+
+                await handleAuthenticationCompleted(
+                    signInResult.authenticationResult
+                );
+
+                return;
+            }
+
+
+            // --------------------------------------------------------
+            // UNEXPECTED RESULT
+            // --------------------------------------------------------
+
+            console.error(
+                "========== UNEXPECTED NEW ACCOUNT SIGN-IN STEP =========="
+            );
+
+            console.error(
+                "Result:",
+                signInResult
+            );
+
+            console.error(
+                "Step:",
+                signInResult?.step
+            );
+
+            setError(
+                signInResult.message ||
+                `Unexpected sign-in step: ${
+                    signInResult?.step ||
+                    "unknown"
+                }`
             );
 
         }
@@ -3257,7 +3586,13 @@ const signInWithDifferentAccount =
             );
 
             console.error(
+                "Error:",
                 error
+            );
+
+            console.error(
+                "Message:",
+                error?.message
             );
 
             setError(
@@ -3271,7 +3606,13 @@ const signInWithDifferentAccount =
             setLoading(false);
         }
 
-    }, []);
+    }, [
+        pendingSwitchUsername,
+        username,
+        buildCustomMfaMethods,
+        handleAuthenticationCompleted
+    ]);
+
 
 
 
@@ -3758,6 +4099,7 @@ const continueWithExistingAuthentication =
         setConfirmPassword,
         existingAccount,
         checkingExistingAccount,
+        pendingSwitchUsername,
         continueWithExistingAuthentication,
        signInWithDifferentAccount
     };

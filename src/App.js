@@ -12,9 +12,9 @@ import {
     useNavigate,
 } from "react-router-dom";
 
-import {
-    useMsal,
-} from "@azure/msal-react";
+import { useMsal } from "@azure/msal-react";
+
+import { InteractionStatus } from "@azure/msal-browser";
 
 import {
     jwtDecode,
@@ -50,6 +50,7 @@ function MsalDemoPage() {
     const {
         instance,
         accounts,
+        inProgress
     } = useMsal();
 
 
@@ -72,7 +73,6 @@ function MsalDemoPage() {
         username,
         nativeAccount,
     } = useNativeAuth();
-
 
     // --------------------------------------------------------
     // STATE
@@ -104,8 +104,7 @@ function MsalDemoPage() {
 
     const [loading, setLoading] =
         useState(false);
-
-
+  
     // --------------------------------------------------------
     // STANDARD MSAL ACCOUNT
     // --------------------------------------------------------
@@ -490,21 +489,26 @@ function MsalDemoPage() {
     // STANDARD MSAL LOGOUT
     // --------------------------------------------------------
 
-    const handleMsalLogout =
-        async () => {
+    const handleMsalLogout = async () => {
+        if (inProgress !== InteractionStatus.None) {
+            console.warn(
+                "MSAL interaction is still in progress. Please wait before logging out."
+            );
+            return;
+        }
 
-            try {
+        try {
+            const account =
+                instance.getActiveAccount() ??
+                instance.getAllAccounts()[0];
 
-                await instance.logoutRedirect();
-
-            } catch (error) {
-
-                console.error(
-                    "MSAL logout failed:",
-                    error
-                );
-            }
-        };
+            await instance.logoutPopup({
+                account: account || undefined
+            });
+        } catch (error) {
+            console.error("MSAL logout failed:", error);
+        }
+    };
 
 
     // ========================================================
@@ -1003,15 +1007,22 @@ function MsalDemoPage() {
                         MSAL Login
                     </button>
 
-
                     <button
+                        onClick={handleMsalLogout}
+                        disabled={inProgress !== InteractionStatus.None}
+                    >
+                        {inProgress !== InteractionStatus.None
+                            ? "Please wait..."
+                            : "MSAL Logout"}
+                    </button>
+                    {/* <button
                         type="button"
                         onClick={
                             handleMsalLogout
                         }
                     >
                         MSAL Logout
-                    </button>
+                    </button> */}
 
                 </div>
 

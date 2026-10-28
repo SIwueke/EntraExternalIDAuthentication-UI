@@ -117,6 +117,8 @@ const CustomLoginPage = () => {
         registrationCode,
         setRegistrationCode,
 
+        registrationState,
+
         step,
 
         loading,
@@ -160,6 +162,7 @@ const CustomLoginPage = () => {
 
         existingAccount,
         checkingExistingAccount,
+        pendingSwitchUsername,
         continueWithExistingAuthentication,
         signInWithDifferentAccount
 
@@ -187,6 +190,11 @@ const CustomLoginPage = () => {
     console.log(
         "Existing account:",
         existingAccount
+    );
+
+    console.log(
+        "Pending switch username:",
+        pendingSwitchUsername
     );
 
     console.log(
@@ -365,13 +373,25 @@ const CustomLoginPage = () => {
                             variant="text"
                             fullWidth
                             disabled={loading}
-                            onClick={async () => {
+                            onClick={() => {
 
                                 console.log(
-                                    "========== SIGN IN WITH DIFFERENT ACCOUNT =========="
+                                    "========== ENTER DIFFERENT ACCOUNT =========="
                                 );
 
-                                await signInWithDifferentAccount();
+                                /*
+                                 * Do NOT switch the native account here.
+                                 *
+                                 * The user should return to the email
+                                 * screen and enter the other username.
+                                 *
+                                 * startSignIn() will then detect that the
+                                 * requested username differs from the
+                                 * currently authenticated account.
+                                 */
+
+                                setUsername("");
+                                handleBack();
                             }}
                             sx={{
                                 ...backButtonSx,
@@ -379,6 +399,160 @@ const CustomLoginPage = () => {
                             }}
                         >
                             Sign in with a different account
+                        </Button>
+
+                    </Box>
+                );
+
+
+            // ====================================================
+            // DIFFERENT ACCOUNT ALREADY AUTHENTICATED
+            // ====================================================
+
+            case "differentAccountAuthenticated":
+
+                return (
+                    <Box
+                        sx={{
+                            textAlign: "center"
+                        }}
+                    >
+
+                        <Typography
+                            sx={{
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: "#2a1c3b",
+                                mb: 1
+                            }}
+                        >
+                            Another account is already signed in
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 14,
+                                color: "#546078",
+                                mb: 1
+                            }}
+                        >
+                            Currently signed in as:
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 15,
+                                fontWeight: 600,
+                                color: "#2a1c3b",
+                                mb: 2
+                            }}
+                        >
+                            {existingAccount?.account?.username ||
+                                "Existing account"}
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 14,
+                                color: "#546078",
+                                mb: 1
+                            }}
+                        >
+                            You entered:
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 15,
+                                fontWeight: 600,
+                                color: "#2a1c3b",
+                                mb: 3
+                            }}
+                        >
+                            {pendingSwitchUsername ||
+                                username ||
+                                "Different account"}
+                        </Typography>
+
+
+                        <Typography
+                            sx={{
+                                fontSize: 14,
+                                color: "#546078",
+                                mb: 3
+                            }}
+                        >
+                            Would you like to switch to this
+                            account?
+                        </Typography>
+
+
+                        <Button
+                            variant="contained"
+                            fullWidth
+                            disabled={loading}
+                            onClick={async () => {
+
+                                console.log(
+                                    "========== CONFIRM ACCOUNT SWITCH =========="
+                                );
+
+                                console.log(
+                                    "Current account:",
+                                    existingAccount?.account?.username
+                                );
+
+                                console.log(
+                                    "Requested account:",
+                                    pendingSwitchUsername ||
+                                    username
+                                );
+
+                                await signInWithDifferentAccount();
+                            }}
+                            sx={{
+                                ...primaryButtonSx,
+
+                                mb: 1.5,
+
+                                "&:hover": {
+                                    background:
+                                        "linear-gradient(90deg, #544070, #2e3258)"
+                                }
+                            }}
+                        >
+                            {loading
+                                ? "Switching..."
+                                : "Switch Account"}
+                        </Button>
+
+
+                        <Button
+                            variant="text"
+                            fullWidth
+                            disabled={loading}
+                            onClick={() => {
+
+                                console.log(
+                                    "========== CANCEL ACCOUNT SWITCH =========="
+                                );
+
+                                setUsername("");
+
+                                console.log(
+                                    "Returning to email sign-in screen."
+                                );
+                            }}
+                            sx={{
+                                ...backButtonSx,
+                                fontWeight: 600
+                            }}
+                        >
+                            Cancel
                         </Button>
 
                     </Box>
@@ -482,7 +656,9 @@ const CustomLoginPage = () => {
                             setConfirmPassword
                         }
 
-                        loading={loading}
+                        loading={
+                            loading
+                        }
 
                         handleNewPasswordSubmit={
                             handleNewPasswordSubmit
@@ -900,7 +1076,34 @@ const CustomLoginPage = () => {
                     step
                 );
 
-                return null;
+                return (
+                    <Box
+                        sx={{
+                            textAlign: "center"
+                        }}
+                    >
+                        <Typography
+                            sx={{
+                                mb: 2
+                            }}
+                        >
+                            Authentication step:
+                            {" "}
+                            {step || "unknown"}
+                        </Typography>
+
+                        <Button
+                            variant="text"
+                            onClick={() => {
+                                setUsername("");
+                                handleBack();
+                            }}
+                            sx={backButtonSx}
+                        >
+                            Back
+                        </Button>
+                    </Box>
+                );
         }
     };
 

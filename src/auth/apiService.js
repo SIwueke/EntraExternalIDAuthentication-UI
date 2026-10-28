@@ -50,9 +50,9 @@ export async function callProtectedApi(
   url,
   options = {}
 ) {
-  console.log(
-    "========== CALL PROTECTED API =========="
-  );
+  // console.log(
+  //   "========== CALL PROTECTED API =========="
+  // );
 
   if (!accessToken) {
     throw new Error(
@@ -68,20 +68,20 @@ export async function callProtectedApi(
 
   const apiUrl = buildApiUrl(url);
 
-  console.log(
-    "API URL:",
-    apiUrl
-  );
+  // console.log(
+  //   "API URL:",
+  //   apiUrl
+  // );
 
-  console.log(
-    "Access token type:",
-    typeof accessToken
-  );
+  // console.log(
+  //   "Access token type:",
+  //   typeof accessToken
+  // );
 
-  console.log(
-    "Access token length:",
-    accessToken.length
-  );
+  // console.log(
+  //   "Access token length:",
+  //   accessToken.length
+  // );
 
   const {
     headers = {},

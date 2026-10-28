@@ -12,7 +12,7 @@ export const callProtectedApi = async (
     url,
     options = {}
 ) => {
-    console.log("========== CALL PROTECTED API ==========");
+    // console.log("========== CALL PROTECTED API ==========");
 
     if (!accessToken) {
         throw new Error(
@@ -26,10 +26,10 @@ export const callProtectedApi = async (
         );
     }
 
-    console.log(
-        "Using existing Entra access token. Length:",
-        accessToken.length
-    );
+    // console.log(
+    //     "Using existing Entra access token. Length:",
+    //     accessToken.length
+    // );
 
     const {
         method = "GET",
@@ -59,9 +59,9 @@ export const callProtectedApi = async (
         }
     );
 
-    console.log(
-        `Protected API response: ${response.status} ${response.statusText}`
-    );
+    // console.log(
+    //     `Protected API response: ${response.status} ${response.statusText}`
+    // );
 
     const contentType =
         response.headers.get("content-type") || "";
